@@ -244,7 +244,9 @@ details summary::-webkit-details-marker{display:none}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
 /* ---- night + LED treatment ---- */
-html{background:var(--bg)}
+html{background:var(--bg);overflow-x:hidden;overflow-x:clip;max-width:100%}
+body{max-width:100%;overflow-x:clip;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+img,svg,video{max-width:100%}
 body{background:radial-gradient(900px 520px at 88% -8%,rgba(127,109,255,.26),transparent 62%),radial-gradient(760px 460px at -12% 34%,rgba(44,207,255,.13),transparent 60%),radial-gradient(700px 500px at 60% 110%,rgba(255,79,184,.10),transparent 60%),var(--bg);background-attachment:fixed;min-height:100vh;overflow-x:hidden}
 .top{background:rgba(6,10,27,.82);border-bottom:0;padding-bottom:14px}
 .brand{letter-spacing:.02em;text-transform:lowercase;font-size:20px}
@@ -1397,6 +1399,9 @@ function reflow(root){
   });
 }
 try { TWO.addEventListener("change", () => render()); } catch(_){ }
+/* Efter rotation eller sidbyte: se till att sidan aldrig står förskjuten i sidled */
+const fixX = () => { if (window.scrollX) window.scrollTo(0, window.scrollY); };
+window.addEventListener("resize", fixX); window.addEventListener("orientationchange", () => setTimeout(fixX, 300)); document.addEventListener("animationend", fixX);
 function render(){
   { const ae = document.activeElement; if (S.dragging || (ae && ae.tagName === "INPUT" && ae.type !== "range" && ae.closest && ae.closest("#main"))){ S.dirty = true; return; } }
   if (S.priceLampLocal != null && (S.vars[VAR.priceLamp]||{}).value === S.priceLampLocal) S.priceLampLocal = null;
