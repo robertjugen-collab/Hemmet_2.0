@@ -922,6 +922,27 @@ function viewHem(){
 
 /* ---------- climate ---------- */
 const tCol = t => t==null ? "var(--surface-3)" : t < -5 ? "#4c7dff" : t < 5 ? "#45b2f0" : t < 17 ? "#3fc3b0" : t < 22.5 ? "#3fbf74" : t < 25 ? "#f0b429" : "#f0703c";
+/* filter reminder on the hall heat pump: reset through Sensibo's own service, via a Homey flow */
+const FILTER_FLOW = "b60fb3fb-b029-4822-ad18-a5a415e7fb57", FILTER_KEY = "9314bc3f-aaba-470d-9188-e2a89494ea2a", FILTER_LOG = "52a97fe4-d3ed-4ce6-be64-0d5161b74d86";
+function filterBlock(se){
+  const keyVar = S.vars[FILTER_KEY], hasKey = !keyVar || String(keyVar.value||"").trim().length > 0;
+  const last = Date.parse((S.vars[FILTER_LOG]||{}).value || ""), lastTxt = isNaN(last) ? "" : "Senast nollställt "+dShort.format(last);
+  const due = !!se.alarm_filter && !(S.filterDone && Date.now() - S.filterDone < 15*60000);
+  let b = '<div class="row" style="margin-top:14px;padding:12px;border-radius:13px;background:'+(due?"color-mix(in srgb,var(--warn) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,transparent)":"rgba(36,49,96,.45)")+'"><span class="grow"><b>'+(due?"Filtret behöver rengöras":S.filterDone?"Filtret är nollställt":"Filtret är rent")+'</b><div class="xs muted">'+(se.se_filter_run_hours!=null?f0(se.se_filter_run_hours)+" drifttimmar":"")+(lastTxt?(se.se_filter_run_hours!=null?" · ":"")+lastTxt:"")+'</div></span>';
+  if (!S.confirmFilter) b += '<button type="button" class="btn'+(due?" pri":"")+'" data-act="filter-ask">Jag har rengjort det</button>';
+  b += '</div>';
+  if (S.confirmFilter) b += '<div class="banner warn" style="margin:8px 0 0"><div class="grow">Nollställa filterpåminnelsen?</div><button type="button" class="btn pri" data-act="filter-reset">Ja, nollställ</button><button type="button" class="btn" data-act="filter-cancel">Avbryt</button></div>';
+  if (!hasKey) b += '<div class="note" style="color:var(--warn)">Knappen behöver din Sensibo API-nyckel. Skapa den på home.sensibo.com/me/api och klistra in den i Logik-variabeln "Sensibo API-nyckel" i Homey-appen.</div>';
+  return b;
+}
+async function resetFilter(btn){
+  S.confirmFilter = false;
+  if (!S.mcp){ toast("Öppna appen i Claude eller anslut till Homey först."); render(); return; }
+  btn.classList.add("busy");
+  try { await S.mcp.callTool(HOMEY, "start_flow", {flowId:FILTER_FLOW, flowType:"advanced"}); S.filterDone = Date.now(); toast("Filterpåminnelsen är nollställd"); invalidate("list_variables", 4000); invalidate("list_devices", 20000); }
+  catch(e){ toast("Kunde inte nollställa: "+errText(e)); }
+  finally { btn.classList.remove("busy"); render(); }
+}
 function viewKlimat(){
   if (!S.devices) return '<h1 class="vt">Klimat</h1>'+card({}, skel(4));
   const T = S.devices.filter(d => d.type === "sensor" && d.state.measure_temperature != null && d.id !== DEV.smhi);
@@ -938,7 +959,7 @@ function viewKlimat(){
       '<div class="row"><div class="grow"><div class="xs muted">Mål</div><div class="stepper"><button type="button" data-act="temp" data-id="'+DEV.sensibo+'" data-d="-1" aria-label="Sänk">−</button><span class="big num" style="font-size:38px">'+f0(se.target_temperature)+'°</span><button type="button" data-act="temp" data-id="'+DEV.sensibo+'" data-d="1" aria-label="Höj">+</button></div></div><div style="text-align:right"><div class="xs muted">I hallen nu</div><div class="mid num">'+f1(se.measure_temperature)+'°</div><div class="xs muted num">'+f0(se.measure_humidity)+' % fukt</div></div></div>'+
       '<div class="lbl">Läge</div><div class="seg">'+modes.map(m => '<button type="button" data-act="cap" data-id="'+DEV.sensibo+'" data-cap="thermostat_mode" data-v="'+m[0]+'" aria-pressed="'+(se.thermostat_mode===m[0])+'">'+m[1]+'</button>').join("")+'</div>'+
       '<div class="lbl">Fläkt</div><div class="seg">'+fans.map(m => '<button type="button" data-act="cap" data-id="'+DEV.sensibo+'" data-cap="se_fanlevel" data-v="'+m[0]+'" aria-pressed="'+(se.se_fanlevel===m[0])+'">'+m[1]+'</button>').join("")+'</div>'+
-      (se.alarm_filter?'<div class="note" style="color:var(--warn)">Filtret behöver rengöras.</div>':''));
+      filterBlock(se));
   }
   if (fl) ctl += card({title:"Golvvärme på toaletten", ic:"therm", c:"var(--bad)", right:'<button type="button" class="sw" role="switch" aria-checked="'+!!fl.onoff+'" data-act="toggle" data-id="'+DEV.floor+'" data-cap="onoff" aria-label="Golvvärme på eller av"></button>'},
     '<div class="row"><div class="grow"><div class="xs muted">Mål</div><div class="stepper"><button type="button" data-act="temp" data-id="'+DEV.floor+'" data-d="-0.5" aria-label="Sänk">−</button><span class="big num" style="font-size:38px">'+f1(fl.target_temperature)+'°</span><button type="button" data-act="temp" data-id="'+DEV.floor+'" data-d="0.5" aria-label="Höj">+</button></div></div><div style="text-align:right"><div class="xs muted">Golvet nu</div><div class="mid num">'+f1(fl.measure_temperature)+'°</div><div class="xs muted">'+((fl.measure_power||0)>5?"Värmer, "+f0(fl.measure_power)+" W":"Vilar")+'</div></div></div>');
@@ -1372,6 +1393,9 @@ document.addEventListener("click", e => {
   else if (a === "scenedel"){ const c = cfg(), i = Number(b.dataset.i), n = (c.scenes[i]||{}).n; if (c.scenes.length <= 1) S.sceneEdit = false; saveCfg({scenes:c.scenes.filter((_,k) => k !== i), ski:c.ski}, "Tog bort "+n); }
   else if (a === "skifav"){ const c = cfg(), n = b.dataset.n, on = c.ski.includes(n); saveCfg({scenes:c.scenes, ski:on ? c.ski.filter(x => x !== n) : c.ski.concat([n])}, on ? n+" borttagen" : n+" är favorit"); }
   else if (a === "skiall"){ S.skiAll = !S.skiAll; render(); }
+  else if (a === "filter-ask"){ S.confirmFilter = true; render(); }
+  else if (a === "filter-cancel"){ S.confirmFilter = false; render(); }
+  else if (a === "filter-reset"){ resetFilter(b); }
   else if (a === "disarm-ask"){ S.confirmDisarm = true; render(); }
   else if (a === "disarm-cancel"){ S.confirmDisarm = false; render(); }
   else if (a === "disarm"){ S.confirmDisarm = false; runFlow(ALARM.disarm, "Larmet stängs av", b); render(); }
