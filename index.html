@@ -366,7 +366,7 @@ const VAR = {
 };
 const FLOW = {wx:"c38fbeea-d4b4-4e66-a937-d9a187e26d26", snow:"23b8c4c1-b04d-4755-9f95-9e92cacf2d42", ham:"c60a1dcc-6fb1-49bf-bec7-1f3c9d70c873", swe:"3887a9be-89be-4d8f-8e8a-90f33fa164ce", sweTab:"cbd0676e-2c6d-4837-8cd1-b4c074b404e2", local:"c3a3d42c-4a2f-4298-8c6b-e1dd4283ded2"};
 const QUICK = [
-  {label:"God morgon", flow:"864e7879-939d-497f-9bbf-617011fb1e6f", ic:"sun", c:"var(--lamp)"},
+  {label:"God morgon", act:"morning", ic:"sun", c:"var(--lamp)"},
   {label:"Kom hem", flow:"dacace76-5b40-4ab6-a28a-f761d5dcc206", ic:"home", c:"var(--accent)"},
   {label:"Lämna huset", flow:"7f34c6d3-f969-4450-bb05-c94c073960c9", ic:"door", c:"var(--info)"},
   {label:"God natt", flow:"31a3cb18-414d-4984-af8d-9bebb3dc2c8d", ic:"moon", c:"var(--info)"},
@@ -890,6 +890,7 @@ function heroCard(){
   let chips = "";
   if (S.devices){
     if (al) chips += '<a class="chip" href="#hem">'+ic("shield",15)+esc(al.label)+'</a>';
+    if (awayInfo().on) chips += '<a class="chip" href="#hem">'+ic("door",15)+'Bortaläge</a>';
     chips += '<a class="chip" href="#ljus">'+ic("bulb",15)+onN+' lampor tända</a>';
     if (p != null) chips += '<a class="chip num" href="#hem">'+ic("bolt",15)+(p<0?"Säljer ":"")+f1(Math.abs(p)/1000)+' kW</a>';
     if (pl.length) chips += '<a class="chip" href="#media">'+ic("music",15)+'Spelar i '+esc(pl[0].name)+(pl.length>1?" +"+(pl.length-1):"")+'</a>';
@@ -901,11 +902,82 @@ function heroCard(){
 function quickCard(){
   return card({title:"Snabbval", ic:"bolt"}, '<div class="quick">'+QUICK.map(q => '<button type="button" class="q" style="--c:'+q.c+'" '+(q.flow?'data-act="flow" data-id="'+q.flow+'" data-done="'+esc(q.label)+' startat"':'data-act="'+q.act+'"')+'><span class="qi">'+ic(q.ic,18)+'</span>'+esc(q.label)+'</button>').join("")+'</div>');
 }
+/* ---------- bortaläge ---------- */
+function awayInfo(){
+  const st = getVarJSON(AWAY_ST) || {}, v = (S.vars[AWAY_VAR]||{}).value;
+  const on = S.awayLocal != null ? S.awayLocal : !!(v === true || st.on);
+  return {on, since:st.since ? Number(st.since) : null, lit:st.lit || null, msg:st.msg || ""};
+}
+function awayBlock(){
+  const w = awayInfo();
+  let b = '<div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"><span class="grow"><b>Bortaläge</b><div class="small muted">'+
+    (w.on ? (w.since ? "På sedan "+dShort.format(w.since)+" "+tFmt.format(w.since) : "På")+(w.lit ? " · lyser nu i "+esc(w.lit.toLowerCase()) : "") : "Larmar, sänker värmen och tänder lampor slumpvis på kvällen")+'</div></span>'+
+    '<button type="button" class="sw'+(w.on?" on":"")+'" role="switch" aria-checked="'+w.on+'" aria-label="Bortaläge" data-act="'+(w.on?"away-off":"away-ask")+'"><i></i></button></div>';
+  if (S.confirmAway) b += '<div class="banner warn" style="margin:10px 0 0"><div class="grow">Huset larmas, värmen sänks till 17° i hallen och 18° på toaletten. Starta bortaläge?</div><button type="button" class="btn pri" data-act="away-on">Starta</button><button type="button" class="btn" data-act="away-cancel">Avbryt</button></div>';
+  return b;
+}
+async function setAway(on, btn){
+  S.confirmAway = false;
+  if (!S.mcp){ toast("Öppna appen i Claude eller anslut till Homey först."); render(); return; }
+  S.awayLocal = on; render();
+  try {
+    await S.mcp.callTool(HOMEY, "set_variable", {variableId:AWAY_VAR, value:on});
+    await S.mcp.callTool(HOMEY, "start_flow", {flowId:AWAY_FLOW, flowType:"advanced"});
+    toast(on ? "Bortaläget är på. Trevlig resa!" : "Bortaläget är av. Välkommen hem!");
+  } catch(e){ S.awayLocal = null; toast("Kunde inte ändra bortaläget: "+errText(e)); }
+  invalidate("list_variables", 5000); invalidate("list_devices", 8000);
+  setTimeout(() => { S.awayLocal = null; render(); }, 15000);
+  render();
+}
+/* ---------- morgonsammanfattning ---------- */
+async function goodMorning(btn){
+  if (!S.mcp){ toast("Öppna appen i Claude eller anslut till Homey först."); return; }
+  if (btn) btn.classList.add("busy");
+  const now = new Date(), day = now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0");
+  let items = null;
+  if (Array.isArray(S.cal)) items = S.cal.map(e => { const s = e.start||{}, allDay = !!s.date && !s.dateTime, t = Date.parse(s.dateTime || s.date+"T00:00:00"); return {t, allDay, title:e.summary||""}; })
+    .filter(x => !isNaN(x.t) && new Date(x.t).toDateString() === now.toDateString() && x.title).sort((a,b) => a.t-b.t).slice(0,4).map(x => ({time:x.allDay ? "" : tFmt.format(x.t), title:x.title}));
+  try {
+    await S.mcp.callTool(HOMEY, "set_variable", {variableId:MOR_CAL, value:JSON.stringify({day, items})}).catch(() => {});
+    await S.mcp.callTool(HOMEY, "start_flow", {flowId:MOR_FLOW, flowType:"advanced"});
+    toast("God morgon! Köket läser upp dagen, sedan startar morgonmusiken.");
+  } catch(e){ toast("Kunde inte starta: "+errText(e)); }
+  finally { if (btn) btn.classList.remove("busy"); }
+}
+/* ---------- el per månad ---------- */
+const MON = ["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"], MONL = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"];
+function elMonthCard(){
+  const j = getVarJSON(EL_VAR), M = (j && j.months) || {}, now = new Date(), y = now.getFullYear();
+  const key = (yy, m) => yy+"-"+String(m+1).padStart(2,"0");
+  const btn = '<button type="button" class="iconbtn" style="width:34px;height:34px" data-act="el-refresh" aria-label="Räkna om">'+ic("refresh",15)+'</button>';
+  if (!j) return card({title:"El per månad", ic:"bolt", c:"var(--warn)", right:btn}, S.noMcp ? '<div class="muted small">Visas när appen är ansluten till Homey.</div>' : '<div class="muted small">Homey räknar ut månaderna varje natt. Tryck på pilen för att räkna nu.</div>');
+  const sel = S.elM != null ? S.elM : now.getMonth(), cur = M[key(y, sel)] || {}, prev = M[key(y-1, sel)] || {};
+  const months = Array.from({length:12}, (_, m) => ({m, a:(M[key(y,m)]||{}).imp, b:(M[key(y-1,m)]||{}).imp}));
+  const max = Math.max(1, ...months.map(x => Math.max(x.a||0, x.b||0)));
+  const W = 320, H = 110, bw = W/12;
+  const bars = months.map(x => { const X = x.m*bw, h1 = (x.b||0)/max*(H-22), h2 = (x.a||0)/max*(H-22), on = x.m === sel;
+    return '<g data-act="el-month" data-v="'+x.m+'" style="cursor:pointer"><rect x="'+X+'" y="0" width="'+bw+'" height="'+H+'" fill="transparent"/>'+
+      (x.b ? '<rect x="'+(X+bw*.14).toFixed(1)+'" y="'+(H-16-h1).toFixed(1)+'" width="'+(bw*.34).toFixed(1)+'" height="'+h1.toFixed(1)+'" rx="2" fill="#8f9dc6" fill-opacity=".28"/>' : '')+
+      (x.a ? '<rect x="'+(X+bw*.5).toFixed(1)+'" y="'+(H-16-h2).toFixed(1)+'" width="'+(bw*.36).toFixed(1)+'" height="'+h2.toFixed(1)+'" rx="2" fill="'+(on?"#ffc355":"#ffc355")+'" fill-opacity="'+(on?1:.55)+'"/>' : '')+
+      '<text x="'+(X+bw/2).toFixed(1)+'" y="'+(H-3)+'" font-size="9.5" text-anchor="middle" fill="'+(on?"#e9edff":"#8f9dc6")+'" font-weight="'+(on?700:400)+'">'+MON[x.m]+'</text></g>'; }).join("");
+  const svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block;margin:4px 0 6px" role="img" aria-label="Köpt el per månad i år jämfört med förra året">'+bars+'</svg>'+
+    '<div class="row xs muted" style="gap:14px;margin-bottom:10px"><span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#ffc355;margin-right:5px"></i>'+y+'</span><span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:rgba(143,157,198,.4);margin-right:5px"></i>'+(y-1)+'</span><span class="grow" style="text-align:right">Tryck på en månad</span></div>';
+  const diff = (a, b) => (a == null || !b) ? "" : '<div class="s">'+(a >= b ? "+" : "−")+f0(Math.abs(a-b)/b*100)+' % mot '+(y-1)+'</div>';
+  const tile = (k, v, u, d) => '<div class="tile"><div class="k">'+k+'</div><div class="v num">'+f0(v)+'<span class="unit">'+u+'</span></div>'+(d||"")+'</div>';
+  const tiles = '<div class="lbl" style="margin-top:0">'+MONL[sel].replace(/^./, c => c.toUpperCase())+' '+y+(sel === now.getMonth() ? " hittills" : "")+'</div><div class="tiles">'+
+    tile("Köpt", cur.imp, "kWh", diff(cur.imp, prev.imp))+tile("Sålt", cur.exp, "kWh", diff(cur.exp, prev.exp))+tile("Sol", cur.sol, "kWh", diff(cur.sol, prev.sol))+tile("Bilen laddade", cur.car, "kWh")+
+    (cur.cost != null ? tile("Kostnad, ca", cur.cost, "kr", diff(cur.cost, prev.cost)) : "")+'</div>';
+  const ytd = (yy, f) => { let s = 0, n = 0; for (let m = 0; m <= now.getMonth(); m++){ const v = (M[key(yy,m)]||{})[f]; if (v != null){ s += v; n++; } } return n ? s : null; };
+  const ia = ytd(y,"imp"), ib = ytd(y-1,"imp");
+  const tot = ia != null ? '<div class="note">Hittills i år har ni köpt '+f0(ia)+' kWh'+(ib ? ', '+(ia <= ib ? f0((ib-ia)/ib*100)+' % mindre' : f0((ia-ib)/ib*100)+' % mer')+' än samma period '+(y-1) : '')+'. Kostnaden är spotpriset gånger förbrukningen, utan nätavgift och skatt, och finns bara för tider då Homey sparat elpriset. Siffrorna kommer från Homeys mätarloggar, så glapp i loggarna blir glapp här.</div>' : '';
+  return card({title:"El per månad", ic:"bolt", c:"var(--warn)", right:btn}, svg+tiles+tot);
+}
 function alarmCard(){
   const a = alarmInfo(); if (!a) return card({title:"Larm", ic:"shield"}, skel(1));
   let body = '<div class="row"><div class="grow"><div class="mid">'+esc(a.label)+'</div><div class="small muted">Ajax'+(a.s.ajax_connection_state===false?" · ingen kontakt med hubben":"")+(a.s.ajax_ac_power===false?" · går på batteri":"")+'</div></div></div>'+
     '<div class="btnrow" style="margin-top:12px"><button type="button" class="btn'+(a.state==="armed"?" on":"")+'" data-act="flow" data-id="'+ALARM.arm+'" data-done="Larmar">Larma</button><button type="button" class="btn'+(a.state==="partially_armed"?" on":"")+'" data-act="flow" data-id="'+ALARM.night+'" data-done="Nattläge på">Nattläge</button><button type="button" class="btn'+(a.state==="disarmed"?" on":"")+'" data-act="disarm-ask">Avlarma</button></div>';
   if (S.confirmDisarm) body += '<div class="banner warn" style="margin:10px 0 0"><div class="grow">Stänga av larmet?</div><button type="button" class="btn danger" data-act="disarm">Ja, avlarma</button><button type="button" class="btn" data-act="disarm-cancel">Nej</button></div>';
+  body += awayBlock();
   return card({title:"Larm", ic:"shield", c:"var(--"+(a.cls==="ok"?"ok":a.cls)+")", right:'<span class="pill '+a.cls+'">'+esc(a.label)+'</span>'}, body);
 }
 function energyCard(){
@@ -935,12 +1007,15 @@ function shortcutsCard(){
 function viewHem(){
   const a = S.devices ? alerts() : [];
   const al = a.length ? card({title:"Att hålla koll på", ic:"alert", c:"var(--warn)", right:'<span class="pill warn num">'+a.length+'</span>'}, '<div class="list">'+a.map(x => '<'+(x.href?'a href="'+x.href+'"':'div')+' class="li"><span class="dot '+(x.cls==="info"?"":x.cls)+'" style="'+(x.cls==="info"?"background:var(--info)":"")+'"></span><span class="grow">'+esc(x.text)+'</span>'+(x.href?ic("chev",14):"")+'</'+(x.href?"a":"div")+'>').join("")+'</div>') : "";
-  return '<div class="grid"><div class="stack">'+heroCard()+busCard()+quickCard()+'</div><div class="stack">'+al+agendaCard()+alarmCard()+shortcutsCard()+'</div><div class="stack">'+energyCard()+powerHistCard()+'</div></div>';
+  return '<div class="grid"><div class="stack">'+heroCard()+busCard()+quickCard()+'</div><div class="stack">'+al+agendaCard()+alarmCard()+shortcutsCard()+'</div><div class="stack">'+energyCard()+powerHistCard()+elMonthCard()+'</div></div>';
 }
 
 /* ---------- climate ---------- */
 const tCol = t => t==null ? "var(--surface-3)" : t < -5 ? "#4c7dff" : t < 5 ? "#45b2f0" : t < 17 ? "#3fc3b0" : t < 22.5 ? "#3fbf74" : t < 25 ? "#f0b429" : "#f0703c";
 /* filter reminder on the hall heat pump: reset through Sensibo's own service, via a Homey flow */
+const EL_VAR = "5f1f8c50-327a-4902-92fe-d92700b2686f", EL_FLOW = "77901ec4-0a07-434a-a22e-1fda3226f1ee";
+const AWAY_VAR = "bb04afbb-0474-4950-87ab-d9638ccf5460", AWAY_ST = "0e49b672-d55c-48b1-8de6-de42c71c85bf", AWAY_FLOW = "db271e55-e8b2-4603-a6b1-7d764d51b359";
+const MOR_CAL = "b370652f-861e-4a9e-b653-2c273570601d", MOR_FLOW = "f0207513-116f-4c53-9af5-e9eb1645eb48";
 const FILTER_FLOW = "b60fb3fb-b029-4822-ad18-a5a415e7fb57", FILTER_KEY = "9314bc3f-aaba-470d-9188-e2a89494ea2a", FILTER_LOG = "52a97fe4-d3ed-4ce6-be64-0d5161b74d86";
 function filterBlock(se){
   const keyVar = S.vars[FILTER_KEY], hasKey = !keyVar || String(keyVar.value||"").trim().length > 0;
@@ -1425,6 +1500,13 @@ document.addEventListener("click", e => {
   else if (a === "skifav"){ const c = cfg(), n = b.dataset.n, on = c.ski.includes(n); saveCfg({scenes:c.scenes, ski:on ? c.ski.filter(x => x !== n) : c.ski.concat([n])}, on ? n+" borttagen" : n+" är favorit"); }
   else if (a === "skiall"){ S.skiAll = !S.skiAll; render(); }
   else if (a === "filter-ask"){ S.confirmFilter = true; render(); }
+  else if (a === "morning"){ goodMorning(b); }
+  else if (a === "away-ask"){ S.confirmAway = true; render(); }
+  else if (a === "away-cancel"){ S.confirmAway = false; render(); }
+  else if (a === "away-on"){ setAway(true, b); }
+  else if (a === "away-off"){ setAway(false, b); }
+  else if (a === "el-month"){ S.elM = Number(b.dataset.v); render(); }
+  else if (a === "el-refresh"){ if (!S.mcp){ toast("Anslut till Homey först."); } else { b.classList.add("busy"); S.mcp.callTool(HOMEY, "start_flow", {flowId:EL_FLOW, flowType:"advanced"}).then(() => { toast("Homey räknar om månaderna, det tar en halv minut"); invalidate("list_variables", 25000); invalidate("list_variables", 50000); }).catch(e => toast("Kunde inte starta: "+errText(e))).finally(() => b.classList.remove("busy")); } }
   else if (a === "filter-cancel"){ S.confirmFilter = false; render(); }
   else if (a === "filter-reset"){ resetFilter(b); }
   else if (a === "disarm-ask"){ S.confirmDisarm = true; render(); }
