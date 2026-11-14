@@ -60,6 +60,24 @@ main{padding:14px 16px calc(96px + env(safe-area-inset-bottom,0px));max-width:12
   main{margin-left:92px;padding:20px 24px 40px;max-width:1400px}
 }
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px;align-items:start}
+/* liggande mobil: navigering som list till vänster, lägre topp */
+@media (orientation:landscape) and (max-height:560px) and (max-width:1199px){
+  .top{padding:6px 16px 8px}
+  .brand .mark{width:26px;height:26px}
+  .iconbtn{width:36px;height:36px}
+  .nav{top:0;right:auto;bottom:0;width:76px;flex-direction:column;justify-content:center;gap:0;padding:8px 4px;border-top:0;border-right:1px solid var(--line);z-index:16}
+  .nav a{flex:1 1 0;max-height:52px;justify-content:center;font-size:10px;padding:0}
+  .nav a .ni{height:24px;width:40px}
+  .top,main{margin-left:76px}
+  main{padding:12px 16px 28px;max-width:none}
+  .toast{bottom:16px}
+  .vt{font-size:22px;margin:2px 0 10px}
+}
+/* två kolumner (surfplatta, liten dator): korten fyller kolumnerna tätt utan hål */
+@media (min-width:680px) and (max-width:1157px){
+  .grid{grid-template-columns:1fr 1fr}
+  .grid>.stack:empty{display:none}
+}
 .stack{display:flex;flex-direction:column;gap:14px;min-width:0}
 .vt{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:4px 0 12px}
 
@@ -1292,6 +1310,18 @@ function banner(){
   if (S.err.dev) return '<div class="banner warn"><span>'+ic("alert",18)+'</span><div>'+esc(errText(S.err.dev))+'</div></div>';
   return "";
 }
+/* Två kolumner: de två första kolumnernas toppar ligger kvar, resten av korten läggs i den kortaste kolumnen */
+const TWO = window.matchMedia ? window.matchMedia("(min-width:680px) and (max-width:1157px)") : {matches:false, addEventListener(){}};
+function reflow(root){
+  if (!TWO.matches) return;
+  root.querySelectorAll(".grid").forEach(g => {
+    const st = [...g.children].filter(c => c.classList.contains("stack"));
+    if (st.length < 3) return;
+    const cols = st.slice(0,2);
+    st.slice(2).forEach(x => { [...x.children].forEach(c => { const t = cols[0].offsetHeight <= cols[1].offsetHeight ? cols[0] : cols[1]; t.appendChild(c); }); });
+  });
+}
+try { TWO.addEventListener("change", () => render()); } catch(_){ }
 function render(){
   { const ae = document.activeElement; if (S.dragging || (ae && ae.tagName === "INPUT" && ae.type !== "range" && ae.closest && ae.closest("#main"))){ S.dirty = true; return; } }
   if (S.priceLampLocal != null && (S.vars[VAR.priceLamp]||{}).value === S.priceLampLocal) S.priceLampLocal = null;
@@ -1302,6 +1332,7 @@ function render(){
   const vi = VIEWS.findIndex(v => v[0] === S.view);
   html = html.replace('<h1 class="vt">', '<h1 class="vt"><span class="no num">'+String(vi+1).padStart(2,"0")+'</span>');
   main.innerHTML = banner() + html + '<div class="pager" aria-hidden="true">'+VIEWS.map((v,i) => '<i'+(i===vi?' class="on"':'')+'></i>').join("")+'</div>';
+  reflow(main);
   const led = $("#led"), onL = lights().filter(d => d.state.onoff);
   led.className = "led"+(!S.devices?" wait":onL.length?"":" idle");
   led.innerHTML = onL.length ? onL.map(d => '<i style="--lc:'+(lampCss(d)||"var(--lamp)")+'"></i>').join("") : '<i></i>';
