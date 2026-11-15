@@ -862,7 +862,11 @@ function bindPad(pad, id){
 function alarmInfo(){
   const s = (dev(DEV.ajax)||{}).state; if (!s) return null;
   const ev = (s.ajax_last_event||"").toLowerCase(); let state = s.homealarm_state;
-  if (/disarm/.test(ev)) state = "disarmed"; else if (/night/.test(ev)) state = "partially_armed";
+  // Ajax-appens huvudstatus fastnar ofta på "armed", så nattlägesflaggan och senaste händelsen avgör
+  if (s.ajax_night_mode === true) state = "partially_armed";
+  else if (/disarm|deactivat/.test(ev)) state = "disarmed";
+  else if (/night mode activ/.test(ev)) state = "disarmed";      // nattläget är redan av enligt flaggan
+  else if (/\barmed\b/.test(ev)) state = "armed";
   const trouble = ["alarm_generic","alarm_fire","alarm_water","alarm_co","alarm_tamper"].filter(k => s[k] === true);
   return {state, label:{armed:"Larmat", disarmed:"Avlarmat", partially_armed:"Nattläge"}[state] || "Okänt", cls: trouble.length?"bad":state==="armed"?"ok":state==="partially_armed"?"info":"warn", trouble, s};
 }
