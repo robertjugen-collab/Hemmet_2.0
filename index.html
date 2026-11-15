@@ -777,7 +777,7 @@ async function refreshAll(btn){
 }
 
 /* ---------- lights ---------- */
-const lights = () => (S.devices||[]).filter(d => d.type === "light");
+const lights = () => (S.devices||[]).filter(d => d.type === "light" && zoneOf(d) !== "Övrigt");
 const hasDim = d => d.state.dim != null;
 const hasTemp = d => d.state.light_temperature != null;
 const hasColor = d => d.state.light_hue != null && d.state.light_saturation != null;
