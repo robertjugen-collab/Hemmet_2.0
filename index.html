@@ -1030,11 +1030,21 @@ function elMonthCard(){
   const tot = ia != null ? '<div class="note">Hittills i år har ni köpt '+f0(ia)+' kWh'+(ib ? ', '+(ia <= ib ? f0((ib-ia)/ib*100)+' % mindre' : f0((ia-ib)/ib*100)+' % mer')+' än samma period '+(y-1) : '')+'. Kostnaden är spotpriset gånger förbrukningen, utan nätavgift och skatt, och finns bara för tider då Homey sparat elpriset. Siffrorna kommer från Homeys mätarloggar, så glapp i loggarna blir glapp här.</div>' : '';
   return card({title:"El per månad", ic:"bolt", c:"var(--warn)", right:btn}, svg+tiles+tot);
 }
+const VAR_ALH = "dd91a7f4-85fc-4f43-99fb-8b89ccc5315f";
+const ALN = {armed:"Larmat", partially_armed:"Nattläge", disarmed:"Avlarmat"}, ALC = {armed:"ok", partially_armed:"info", disarmed:"warn"};
+function agoTxt(t){ const m = Math.round((Date.now()-t)/60000); if (m < 1) return "nyss"; if (m < 60) return m+" min sedan"; const h = Math.floor(m/60); if (h < 24) return h+" h "+(m%60)+" min sedan"; const d = Math.floor(h/24); return d+(d===1?" dygn":" dygn")+" sedan"; }
+function whenTxt(t){ const d = new Date(t), today = new Date(), y = new Date(Date.now()-864e5); const day = d.toDateString() === today.toDateString() ? "idag" : d.toDateString() === y.toDateString() ? "igår" : dShort.format(t); return day+" "+tFmt.format(t); }
 function alarmCard(){
   const a = alarmInfo(); if (!a) return card({title:"Larm", ic:"shield"}, skel(1));
-  let body = '<div class="row"><div class="grow"><div class="mid">'+esc(a.label)+'</div><div class="small muted">Ajax'+(a.s.ajax_connection_state===false?" · ingen kontakt med hubben":"")+(a.s.ajax_ac_power===false?" · går på batteri":"")+'</div></div></div>'+
-    '<div class="btnrow" style="margin-top:12px"><button type="button" class="btn'+(a.state==="armed"?" on":"")+'" data-act="flow" data-id="'+ALARM.arm+'" data-done="Larmar">Larma</button><button type="button" class="btn'+(a.state==="partially_armed"?" on":"")+'" data-act="flow" data-id="'+ALARM.night+'" data-done="Nattläge på">Nattläge</button><button type="button" class="btn'+(a.state==="disarmed"?" on":"")+'" data-act="disarm-ask">Avlarma</button></div>';
-  if (S.confirmDisarm) body += '<div class="banner warn" style="margin:10px 0 0"><div class="grow">Stänga av larmet?</div><button type="button" class="btn danger" data-act="disarm">Ja, avlarma</button><button type="button" class="btn" data-act="disarm-cancel">Nej</button></div>';
+  const h = getVarJSON(VAR_ALH), log = (h && Array.isArray(h.log)) ? h.log.filter(x => x && x.t) : [];
+  const cur = log[0] && log[0].s === a.state ? log[0] : null;
+  // Samma utseende som förut, men lägena är bara en statusvisning och går inte att trycka på
+  let body = '<div class="row"><div class="grow"><div class="mid">'+esc(a.label)+'</div><div class="small muted">'+(cur ? "Sedan "+whenTxt(cur.t)+" · "+agoTxt(cur.t) : "Ajax")+(a.s.ajax_connection_state===false?" · ingen kontakt med hubben":"")+(a.s.ajax_ac_power===false?" · går på batteri":"")+'</div></div></div>'+
+    '<div class="btnrow" style="margin-top:12px" role="group" aria-label="Larmets läge">'+["armed","partially_armed","disarmed"].map(k => '<span class="btn'+(a.state===k?" on":"")+'" style="cursor:default;pointer-events:none'+(a.state===k?"":";opacity:.45")+'" aria-current="'+(a.state===k)+'">'+ALN[k]+'</span>').join("")+'</div>';
+  if (log.length > (cur ? 1 : 0)) {
+    body += '<div class="lbl">Senaste ändringar</div><div class="list">'+log.slice(0,6).map(x => '<div class="li"><span class="dot '+(ALC[x.s]||"")+'" style="width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--'+(ALC[x.s]||"muted")+');box-shadow:0 0 8px var(--'+(ALC[x.s]||"muted")+')"></span><span class="grow"><b>'+(ALN[x.s]||esc(x.s))+'</b></span><span class="small muted num">'+whenTxt(x.t)+'</span></div>').join("")+'</div>';
+  }
+  body += '<div class="note">Larmet styrs med Ajax-appen eller knappsatsen. Här visas bara läget.</div>';
   body += awayBlock();
   return card({title:"Larm", ic:"shield", c:"var(--"+(a.cls==="ok"?"ok":a.cls)+")", right:'<span class="pill '+a.cls+'">'+esc(a.label)+'</span>'}, body);
 }
