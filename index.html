@@ -935,7 +935,7 @@ function alerts(){
     if (s.alarm_motion === true) add("info", "Rörelse vid "+n.trim());
   });
   const so = solState(); if (so && (so.alarm_problem || so.alarm_connectivity)) add("warn", "Växelriktaren för solcellerna rapporterar problem", "#hem");
-  const se = (dev(DEV.sensibo)||{}).state; if (se && se.alarm_filter) add("warn", "Luftvärmepumpens filter behöver rengöras", "#klimat");
+  const se = (dev(DEV.sensibo)||{}).state; if (se && se.alarm_filter && !(Date.now() - Math.max(S.filterDone||0, Date.parse((S.vars[FILTER_LOG]||{}).value||"")||0) < 3*3600000)) add("warn", "Luftvärmepumpens filter behöver rengöras", "#klimat");
   const v = (dev(DEV.vac)||{}).state; if (v){ if (v.alarm_stuck) add("bad","Dammsugaren har fastnat","#maskiner"); if (v.alarm_bin_full) add("warn","Dammsugarens behållare är full","#maskiner"); if (v.alarm_tank_empty||v.alarm_water_box_empty) add("warn","Dammsugarens vattentank är tom","#maskiner"); }
   const mw = (dev(DEV.mower)||{}).state; if (mw && (mw.alarm_generic || /error|stuck/i.test(mw.mower_status||""))) add("bad","Gräsklipparen behöver hjälp","#maskiner");
   const z = (dev(DEV.zaptec)||{}).state; if (z && z["alarm_generic.car_connected"] && (z.measure_power||0) < 100 && !/finished/i.test(z.charge_mode||"")) add("info","Cupran är inkopplad men laddar inte","#maskiner");
@@ -1089,8 +1089,12 @@ const FILTER_FLOW = "b60fb3fb-b029-4822-ad18-a5a415e7fb57", FILTER_KEY = "9314bc
 function filterBlock(se){
   const keyVar = S.vars[FILTER_KEY], hasKey = !keyVar || String(keyVar.value||"").trim().length > 0;
   const last = Date.parse((S.vars[FILTER_LOG]||{}).value || ""), lastTxt = isNaN(last) ? "" : "Senast nollställt "+dShort.format(last);
-  const due = !!se.alarm_filter && !(S.filterDone && Date.now() - S.filterDone < 15*60000);
-  let b = '<div class="row" style="margin-top:14px;padding:12px;border-radius:13px;background:'+(due?"color-mix(in srgb,var(--warn) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,transparent)":"rgba(36,49,96,.45)")+'"><span class="grow"><b>'+(due?"Filtret behöver rengöras":S.filterDone?"Filtret är nollställt":"Filtret är rent")+'</b><div class="xs muted">'+(se.se_filter_run_hours!=null?f0(se.se_filter_run_hours)+" drifttimmar":"")+(lastTxt?(se.se_filter_run_hours!=null?" · ":"")+lastTxt:"")+'</div></span>';
+  /* Homey's Sensibo app only picks up the reset on its next poll, up to an hour later: trust our own reset log meanwhile */
+  const fresh = Math.max(S.filterDone||0, isNaN(last)?0:last), pending = !!se.alarm_filter && Date.now() - fresh < 3*3600000;
+  const due = !!se.alarm_filter && !pending;
+  const nextD = Date.parse(se.se_filter_due_date||""), nextTxt = !due && !pending && !isNaN(nextD) ? "Nästa rengöring runt "+dShort.format(nextD) : "";
+  const sub = pending ? [lastTxt, "Homey visar det inom en timme"] : [se.se_filter_run_hours!=null ? f0(se.se_filter_run_hours)+" drifttimmar" : "", nextTxt || lastTxt];
+  let b = '<div class="row" style="margin-top:14px;padding:12px;border-radius:13px;background:'+(due?"color-mix(in srgb,var(--warn) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,transparent)":"rgba(36,49,96,.45)")+'"><span class="grow"><b>'+(due?"Filtret behöver rengöras":pending?"Filtret är nollställt":"Filtret är rent")+'</b><div class="xs muted">'+sub.filter(Boolean).join(" · ")+'</div></span>';
   if (!S.confirmFilter) b += '<button type="button" class="btn'+(due?" pri":"")+'" data-act="filter-ask">Jag har rengjort det</button>';
   b += '</div>';
   if (S.confirmFilter) b += '<div class="banner warn" style="margin:8px 0 0"><div class="grow">Nollställa filterpåminnelsen?</div><button type="button" class="btn pri" data-act="filter-reset">Ja, nollställ</button><button type="button" class="btn" data-act="filter-cancel">Avbryt</button></div>';
