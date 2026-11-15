@@ -1129,11 +1129,12 @@ function viewKlimat(){
   }
   if (fl) ctl += card({title:"Golvvärme på toaletten", ic:"therm", c:"var(--bad)", right:'<button type="button" class="sw" role="switch" aria-checked="'+!!fl.onoff+'" data-act="toggle" data-id="'+DEV.floor+'" data-cap="onoff" aria-label="Golvvärme på eller av"></button>'},
     '<div class="row"><div class="grow"><div class="xs muted">Mål</div><div class="stepper"><button type="button" data-act="temp" data-id="'+DEV.floor+'" data-d="-0.5" aria-label="Sänk">−</button><span class="big num" style="font-size:38px">'+f1(fl.target_temperature)+'°</span><button type="button" data-act="temp" data-id="'+DEV.floor+'" data-d="0.5" aria-label="Höj">+</button></div></div><div style="text-align:right"><div class="xs muted">Golvet nu</div><div class="mid num">'+f1(fl.measure_temperature)+'°</div><div class="xs muted">'+((fl.measure_power||0)>5?"Värmer, "+f0(fl.measure_power)+" W":"Vilar")+'</div></div></div>');
+  const coldRank = d => { const n = d.name.toLowerCase(); return (/ölkyl/.test(n)?4:/frys/.test(n)?2:0) + (/höger/.test(n)?1:0); };
   const coldTile = d => { const t = d.state.measure_temperature, fr = /frys/i.test(d.name), bad = fr ? t > -15 : t > 8; return tile(d, '<div class="xs" style="font-weight:700;color:var(--'+(bad?"bad":"ok")+')">'+(bad?(/ölkyl/i.test(d.name)?"Inte kall":"För varmt"):"Bra")+'</div>'); };
   return '<h1 class="vt">Klimat</h1><div class="grid"><div class="stack">'+
     card({title:"Inne", ic:"home", right: avg!=null?'<span class="pill num">snitt '+f1(avg)+'°</span>':''}, '<div class="temps">'+inne.sort((a,b)=>short(a.name).localeCompare(short(b.name),"sv")).map(d=>tile(d)).join("")+'</div>')+
     card({title:"Ute och pool", ic:"sun", c:"var(--info)"}, '<div class="temps">'+out.map(d=>tile(d)).join("")+'</div>')+'</div><div class="stack">'+ctl+'</div><div class="stack">'+
-    card({title:"Kyl och frys", ic:"snow", c:"var(--snow)"}, '<div class="temps">'+cold.map(coldTile).join("")+'</div>')+
+    card({title:"Kyl och frys", ic:"snow", c:"var(--snow)"}, '<div class="temps">'+cold.sort((a,b) => coldRank(a)-coldRank(b)).map(coldTile).join("")+'</div>')+
     (misc.length?card({title:"Övriga givare", ic:"therm", c:"var(--muted)"}, '<div class="temps">'+misc.map(d=>tile(d)).join("")+'</div>'):"")+
     card({title:"Temperatur över tid", ic:"therm", c:"var(--accent)"}, '<div class="hours" data-keep="histdev" style="margin-bottom:10px">'+T.map(d => '<button type="button" class="more'+(S.histDev===d.id?" sel":"")+'" style="flex:none" data-act="histdev" data-id="'+d.id+'">'+esc(short(d.name))+'</button>').join("")+'</div>'+histBlock("homey:device:"+S.histDev+":measure_temperature", v => f1(v)+"°", "#2ccfff"))+'</div></div>';
 }
