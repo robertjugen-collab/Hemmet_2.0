@@ -356,7 +356,7 @@ main.in-r{animation:inR .26s cubic-bezier(.2,.8,.2,1)}
 /* ---------- this home's ids in Homey ---------- */
 const HOMEY = "Homey", TZ = "Europe/Stockholm";
 const DEV = {
-  dongle:"251bab0f-38ee-412a-afbd-babe6bee2ec7", pulse:"c87cf6fd-63f1-44b5-9ded-4aa16c167e78", solar:"79b62b3e-1dbe-4a46-8901-435ce79fbbae",
+  dongle:"251bab0f-38ee-412a-afbd-babe6bee2ec7", pulse:"c87cf6fd-63f1-44b5-9ded-4aa16c167e78", solar:"79b62b3e-1dbe-4a46-8901-435ce79fbbae", solarMb:"dc43d2ff-74b1-4c43-9549-344c02abc112",
   zaptec:"55882b20-2620-45ce-830a-066a7b7a8234", vac:"7fb7de6a-d8c6-49e3-afa4-5370175c617a", mower:"03237205-43f1-4b48-9e6f-573da9ee77a0",
   ajax:"ef06212d-1cdd-42fd-9e4e-bced00dbee59", sensibo:"ee98ff5f-bc76-45ea-bd37-97d458c3c02d", floor:"7ed81803-a4d0-4e8f-8f46-e86bdde6998c",
   smhi:"5335d859-42a1-404c-9973-fa740bfc5e63", ute:"8f82ef0f-1c3e-4d52-b5a6-042189925bec"
@@ -622,6 +622,14 @@ function chart(pts, fmt, col){
     '<text x="6" y="11" font-size="10" fill="#8f9dc6">högst '+fmt(hi)+'</text><text x="'+(W-6)+'" y="11" font-size="10" fill="#8f9dc6" text-anchor="end">lägst '+fmt(lo)+'</text>'+
     [[t0,"start",4],[t0+span/2,"middle",W/2],[t1,"end",W-4]].map(a => '<text x="'+a[2]+'" y="'+(H-6)+'" font-size="10" fill="#8f9dc6" text-anchor="'+a[1]+'">'+lab(a[0])+'</text>').join("")+'</svg>';
 }
+function histBlockBody(logId, fmt, col){
+  const h = ensureHist(logId, S.histRes);
+  if (!h) return '<div class="muted small">Historiken visas när appen är ansluten till Homey.</div>';
+  if (h.err) return '<div class="muted small">Historiken kunde inte hämtas: '+esc(h.err)+'</div>';
+  if (!h.pts) return skel(2);
+  if (h.pts.length < 2) return '<div class="muted small">Homey har ingen historik för den här perioden.</div>';
+  return chart(h.pts, fmt, col);
+}
 function histBlock(logId, fmt, col){
   const h = ensureHist(logId, S.histRes);
   const seg = '<div class="seg" style="margin-bottom:10px">'+[["last24Hours","24 timmar"],["last7Days","7 dygn"],["last31Days","31 dygn"]].map(r => '<button type="button" data-act="histres" data-v="'+r[0]+'" aria-pressed="'+(S.histRes===r[0])+'">'+r[1]+'</button>').join("")+'</div>';
@@ -631,7 +639,49 @@ function histBlock(logId, fmt, col){
   if (h.pts.length < 2) return seg+'<div class="muted small">Homey har ingen historik för den här perioden.</div>';
   return seg+chart(h.pts, fmt, col);
 }
-function powerHistCard(){ return card({title:"Elförbrukning över tid", ic:"bolt", c:"var(--warn)"}, histBlock("homey:device:"+DEV.pulse+":energy_power", v => f1(v/1000)+" kW", "#ffc355")+'<div class="note">Husets effekt från Tibber Pulse. Under noll betyder att ni säljer el.</div>'); }
+/* Färg efter effekt: grönt när ni säljer, sedan cyan, gult, orange och rött ju mer ni köper */
+const PCOL = [[-1e9,"#2bd47d"],[150,"#2ccfff"],[1500,"#ffc355"],[4000,"#ff8a3d"],[8000,"#ff4f6d"]];
+const pcol = w => { let c = PCOL[0][1]; for (const [t, k] of PCOL) if (w >= t) c = k; return c; };
+const effKey = {last24Hours:"d1", last7Days:"d7", last31Days:"d31"};
+function powerChart(d){
+  const n = d.grid.length, t0 = d.from, step = d.step, pts = [], sol = [];
+  d.grid.forEach((v,i) => { if (v != null) pts.push({t:t0+i*step, v}); });
+  d.sol.forEach((v,i) => { if (v != null) sol.push({t:t0+i*step, v}); });
+  if (pts.length < 2) return '<div class="muted small">Homey har inga mätvärden för den här perioden ännu.</div>';
+  const W = 320, H = 150, top = 14, bot = H-24, t1 = t0+(n-1)*step, span = Math.max(1, t1-t0);
+  const all = pts.map(p => p.v).concat(sol.map(p => p.v)), hi = Math.max(500, ...all), lo = Math.min(0, ...pts.map(p => p.v));
+  const r = hi-lo, x = t => 4+(t-t0)/span*(W-8), y = v => top+(1-(v-lo)/r)*(bot-top), y0 = y(0);
+  // dela linjen där det saknas värden
+  const path = (arr) => { let d = "", prev = null; arr.forEach(p => { d += (prev && p.t-prev.t <= step*1.5 ? "L" : "M")+x(p.t).toFixed(1)+" "+y(p.v).toFixed(1); prev = p; }); return d; };
+  const area = (arr) => { const out = []; let seg = []; arr.forEach((p,i) => { if (seg.length && p.t-seg[seg.length-1].t > step*1.5){ out.push(seg); seg = []; } seg.push(p); }); if (seg.length) out.push(seg);
+    return out.filter(s => s.length > 1).map(s => "M"+x(s[0].t).toFixed(1)+" "+y0.toFixed(1)+s.map(p => "L"+x(p.t).toFixed(1)+" "+y(p.v).toFixed(1)).join("")+"L"+x(s[s.length-1].t).toFixed(1)+" "+y0.toFixed(1)+"Z").join(""); };
+  // gradient i y-led så att färgen följer effekten
+  const stops = []; const ys = v => Math.max(0, Math.min(1, (y(v)-top)/(bot-top)));
+  for (let i = PCOL.length-1; i >= 0; i--){ const from = i === PCOL.length-1 ? hi : PCOL[i+1][0], to = i === 0 ? lo : PCOL[i][0];
+    stops.push('<stop offset="'+ys(from).toFixed(4)+'" stop-color="'+PCOL[i][1]+'"/><stop offset="'+ys(to).toFixed(4)+'" stop-color="'+PCOL[i][1]+'"/>'); }
+  const gid = "pg"+n, lab = span > 2*86400000 ? t => dShort.format(t).split(" ").slice(0,2).join(" ") : t => tFmt.format(t);
+  const grid = [hi, (hi+Math.max(lo,0))/2].map(v => '<line x1="4" x2="'+(W-4)+'" y1="'+y(v).toFixed(1)+'" y2="'+y(v).toFixed(1)+'" stroke="#8f9dc6" stroke-opacity=".14"/><text x="'+(W-6)+'" y="'+(y(v)-3).toFixed(1)+'" font-size="9.5" fill="#8f9dc6" text-anchor="end">'+f1(v/1000)+' kW</text>').join("");
+  const last = pts[pts.length-1];
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block;touch-action:pan-y" role="img" aria-label="Effekt mot elnätet över tid, högst '+f1(Math.max(...pts.map(p=>p.v))/1000)+' kW">'+
+    '<defs><linearGradient id="'+gid+'" gradientUnits="userSpaceOnUse" x1="0" y1="'+top+'" x2="0" y2="'+bot+'">'+stops.join("")+'</linearGradient></defs>'+grid+
+    (lo < 0 ? '<rect x="4" y="'+y0.toFixed(1)+'" width="'+(W-8)+'" height="'+(bot-y0).toFixed(1)+'" fill="#2bd47d" fill-opacity=".06"/>' : '')+
+    '<line x1="4" x2="'+(W-4)+'" y1="'+y0.toFixed(1)+'" y2="'+y0.toFixed(1)+'" stroke="#8f9dc6" stroke-opacity=".45" stroke-dasharray="3 3"/>'+
+    (sol.length > 1 ? '<path d="'+area(sol)+'" fill="#ffd34d" fill-opacity=".10"/><path d="'+path(sol)+'" fill="none" stroke="#ffd34d" stroke-opacity=".7" stroke-width="1.3" stroke-dasharray="4 3"/>' : '')+
+    '<path d="'+area(pts)+'" fill="url(#'+gid+')" fill-opacity=".22"/><path d="'+path(pts)+'" fill="none" stroke="url(#'+gid+')" stroke-width="2.2" stroke-linejoin="round"/>'+
+    '<circle cx="'+x(last.t).toFixed(1)+'" cy="'+y(last.v).toFixed(1)+'" r="3.8" fill="'+pcol(last.v)+'" style="filter:drop-shadow(0 0 6px '+pcol(last.v)+')"/>'+
+    [[t0,"start",4],[t0+span/2,"middle",W/2],[t1,"end",W-4]].map(a => '<text x="'+a[2]+'" y="'+(H-6)+'" font-size="10" fill="#8f9dc6" text-anchor="'+a[1]+'">'+lab(a[0])+'</text>').join("")+'</svg>';
+}
+function powerHistCard(){
+  const seg = '<div class="seg" style="margin-bottom:10px">'+[["last24Hours","24 timmar"],["last7Days","7 dygn"],["last31Days","31 dygn"]].map(r => '<button type="button" data-act="histres" data-v="'+r[0]+'" aria-pressed="'+(S.histRes===r[0])+'">'+r[1]+'</button>').join("")+'</div>';
+  const j = getVarJSON(VAR_EFF), d = j && j[effKey[S.histRes]], now = netPower();
+  const pill = now == null ? "" : '<span class="pill num" style="color:'+pcol(now)+';border-color:'+pcol(now)+'55;background:'+pcol(now)+'1a">'+(now < -50 ? "−"+f1(-now/1000) : f1(Math.max(0,now)/1000))+' kW</span>';
+  let body;
+  if (d && Array.isArray(d.grid)) body = powerChart(d);
+  else body = histBlockBody("homey:device:"+DEV.pulse+":energy_power", v => f1(v/1000)+" kW", "#ffc355");
+  const legend = '<div class="row xs muted" style="gap:10px;flex-wrap:wrap;margin-top:6px">'+[["#2bd47d","Säljer"],["#2ccfff","Lågt"],["#ffc355","Normalt"],["#ff8a3d","Högt"],["#ff4f6d","Mycket högt"]].map(c => '<span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+c[0]+';margin-right:4px"></i>'+c[1]+'</span>').join("")+'<span><i style="display:inline-block;width:14px;border-top:2px dashed #ffd34d;margin-right:4px;vertical-align:middle"></i>Sol</span></div>';
+  const so = solState();
+  return card({title:"Elförbrukning över tid", ic:"bolt", c:"var(--warn)", right:pill}, seg+body+legend+'<div class="note">Linjen är effekten mot elnätet från Tibber Pulse: över den streckade nollan köper ni el, under den säljer ni. Den gula streckade linjen är solcellernas produktion'+(so && so.via ? ", läst direkt från växelriktaren via Modbus" : "")+'.</div>');
+}
 /* ---------- bus 677 at Tullen (SL realtime, fetched by Homey) ---------- */
 function departures(){
   const j = getVarJSON(VAR.sl); if (!j || !Array.isArray(j.departures)) return null; const now = Date.now();
@@ -681,7 +731,7 @@ function priceCard(){
   const avg = bs/N, now = h[0].v, max = Math.max.apply(null, h.map(x=>x.v).concat([.01])), srt = h.map(x=>x.v).sort((a,b)=>a-b), lo3 = srt[Math.floor(srt.length/3)], hi3 = srt[Math.floor(srt.length*2/3)];
   const z = (dev(DEV.zaptec)||{}).state || {}, kw = (z.available_installation_current||16)*3*230/1000, kwh = N*kw, save = (now-avg)*kwh, hf = t => tFmt.format(t).slice(0,2);
   const day = t => new Date(t).toDateString() === new Date().toDateString() ? "idag" : "imorgon", startNow = best === 0;
-  const so = (dev(DEV.solar)||{}).state || {};
+  const so = solState() || {};
   return card({title:"Ladda smart", ic:"bolt", c:"var(--ok)", right:'<span class="pill '+(now<=lo3?"ok":now>=hi3?"bad":"warn")+' num">'+f2(now)+' kr nu</span>'},
     '<div class="xs muted" style="margin-bottom:6px">Hur länge behöver bilen ladda?</div><div class="seg">'+[2,3,4,6].map(n => '<button type="button" data-act="chargeh" data-v="'+n+'" aria-pressed="'+(S.chargeH===n)+'">'+n+' h</button>').join("")+'</div>'+
     '<div class="tile" style="margin-top:12px;box-shadow:inset 0 0 0 1.5px var(--ok),0 0 20px -10px var(--ok)"><div class="k">Billigaste '+N+' timmarna</div><div class="v num">'+(startNow?"Nu":day(h[best].t)+" "+hf(h[best].t)+":00")+' – '+hf(h[best].t+N*3600000)+':00</div><div class="s">snitt '+f2(avg)+' kr/kWh · cirka '+f0(kwh)+' kWh för '+f0(avg*kwh)+' kr'+(save>1&&!startNow?' · '+f0(save)+' kr billigare än att börja nu':'')+'</div></div>'+
@@ -870,7 +920,9 @@ function alarmInfo(){
   const trouble = ["alarm_generic","alarm_fire","alarm_water","alarm_co","alarm_tamper"].filter(k => s[k] === true);
   return {state, label:{armed:"Larmat", disarmed:"Avlarmat", partially_armed:"Nattläge"}[state] || "Okänt", cls: trouble.length?"bad":state==="armed"?"ok":state==="partially_armed"?"info":"warn", trouble, s};
 }
-function netPower(){ const a = st(DEV.dongle,"measure_power"); return a != null ? a : st(DEV.pulse,"measure_power"); }
+function netPower(){ const a = st(DEV.pulse,"measure_power"); return a != null ? a : st(DEV.dongle,"measure_power"); }
+/* Solceller: Modbus-enheten (lokalt, direkt från växelriktaren) i första hand, molnenheten som reserv */
+function solState(){ const mb = (dev(DEV.solarMb)||{}).state, cl = (dev(DEV.solar)||{}).state; if (!mb) return cl || null; return Object.assign({}, cl||{}, mb, {"meter_power.day": cl && cl["meter_power.day"], alarm_connectivity:false, via:"Modbus"}); }
 function playing(){ return (S.devices||[]).filter(d => d.type==="speaker" && d.state.speaker_playing === true && !/^Alla |^Inne$/.test(d.name)); }
 function alerts(){
   const out = [], add = (cls, text, href) => out.push({cls, text, href});
@@ -882,7 +934,7 @@ function alerts(){
     if (d.type === "sensor" && s.measure_battery != null && s.measure_battery < 20) add("warn", n+": batteri "+f0(s.measure_battery)+" %");
     if (s.alarm_motion === true) add("info", "Rörelse vid "+n.trim());
   });
-  const so = (dev(DEV.solar)||{}).state; if (so && (so.alarm_problem || so.alarm_connectivity)) add("warn", "Växelriktaren för solcellerna rapporterar problem", "#hem");
+  const so = solState(); if (so && (so.alarm_problem || so.alarm_connectivity)) add("warn", "Växelriktaren för solcellerna rapporterar problem", "#hem");
   const se = (dev(DEV.sensibo)||{}).state; if (se && se.alarm_filter) add("warn", "Luftvärmepumpens filter behöver rengöras", "#klimat");
   const v = (dev(DEV.vac)||{}).state; if (v){ if (v.alarm_stuck) add("bad","Dammsugaren har fastnat","#maskiner"); if (v.alarm_bin_full) add("warn","Dammsugarens behållare är full","#maskiner"); if (v.alarm_tank_empty||v.alarm_water_box_empty) add("warn","Dammsugarens vattentank är tom","#maskiner"); }
   const mw = (dev(DEV.mower)||{}).state; if (mw && (mw.alarm_generic || /error|stuck/i.test(mw.mower_status||""))) add("bad","Gräsklipparen behöver hjälp","#maskiner");
@@ -987,7 +1039,7 @@ function alarmCard(){
   return card({title:"Larm", ic:"shield", c:"var(--"+(a.cls==="ok"?"ok":a.cls)+")", right:'<span class="pill '+a.cls+'">'+esc(a.label)+'</span>'}, body);
 }
 function energyCard(){
-  const dg = (dev(DEV.dongle)||{}).state, pu = (dev(DEV.pulse)||{}).state || {}, so = (dev(DEV.solar)||{}).state || {}, z = (dev(DEV.zaptec)||{}).state || {};
+  const dg = (dev(DEV.dongle)||{}).state, pu = (dev(DEV.pulse)||{}).state || {}, so = solState() || {}, z = (dev(DEV.zaptec)||{}).state || {};
   if (!dg && !pu.measure_power) return card({title:"El just nu", ic:"bolt", c:"var(--warn)"}, skel(2));
   const p = netPower(), exporting = p < 0, price = Number((S.vars[VAR.price]||{}).value), hasPrice = isFinite(price) && price > 0;
   const sol = so.measure_power, car = z.measure_power || 0;
@@ -1019,6 +1071,7 @@ function viewHem(){
 /* ---------- climate ---------- */
 const tCol = t => t==null ? "var(--surface-3)" : t < -5 ? "#4c7dff" : t < 5 ? "#45b2f0" : t < 17 ? "#3fc3b0" : t < 22.5 ? "#3fbf74" : t < 25 ? "#f0b429" : "#f0703c";
 /* filter reminder on the hall heat pump: reset through Sensibo's own service, via a Homey flow */
+const VAR_EFF = "51b633b7-4674-487a-98d8-a78d69474b41";
 const EL_VAR = "5f1f8c50-327a-4902-92fe-d92700b2686f", EL_FLOW = "77901ec4-0a07-434a-a22e-1fda3226f1ee";
 const AWAY_VAR = "bb04afbb-0474-4950-87ab-d9638ccf5460", AWAY_ST = "0e49b672-d55c-48b1-8de6-de42c71c85bf", AWAY_FLOW = "db271e55-e8b2-4603-a6b1-7d764d51b359";
 const MOR_CAL = "b370652f-861e-4a9e-b653-2c273570601d", MOR_FLOW = "f0207513-116f-4c53-9af5-e9eb1645eb48";
