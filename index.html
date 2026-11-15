@@ -1031,6 +1031,7 @@ function elMonthCard(){
   return card({title:"El per månad", ic:"bolt", c:"var(--warn)", right:btn}, svg+tiles+tot);
 }
 const VAR_ALH = "dd91a7f4-85fc-4f43-99fb-8b89ccc5315f";
+const VAR_TEMPH = "077b83cb-0210-4d9c-8034-7949d5a0256c";
 const ALN = {armed:"Larmat", partially_armed:"Nattläge", disarmed:"Avlarmat"}, ALC = {armed:"ok", partially_armed:"info", disarmed:"warn"};
 function agoTxt(t){ const m = Math.round((Date.now()-t)/60000); if (m < 1) return "nyss"; if (m < 60) return m+" min sedan"; const h = Math.floor(m/60); if (h < 24) return h+" h "+(m%60)+" min sedan"; const d = Math.floor(h/24); return d+(d===1?" dygn":" dygn")+" sedan"; }
 function whenTxt(t){ const d = new Date(t), today = new Date(), y = new Date(Date.now()-864e5); const day = d.toDateString() === today.toDateString() ? "idag" : d.toDateString() === y.toDateString() ? "igår" : dShort.format(t); return day+" "+tFmt.format(t); }
@@ -1109,6 +1110,60 @@ async function resetFilter(btn){
   catch(e){ toast("Kunde inte nollställa: "+errText(e)); }
   finally { btn.classList.remove("busy"); render(); }
 }
+/* Temperatur över tid: skalan anpassas efter vilken sorts givare det är */
+function tProfile(name){
+  const n = name.toLowerCase();
+  if (/frys/.test(n)) return {lo:-26, hi:-12, lim:-15, limTxt:"larm −15°"};
+  if (/ölkyl/.test(n)) return {lo:0, hi:25};
+  if (/kyl/.test(n)) return {lo:0, hi:12, lim:8, limTxt:"för varmt 8°"};
+  if (/ute|rimbo|ws-1100|wh2|lägenhet/.test(n)) return {lo:-10, hi:15, out:1};
+  if (/pool/.test(n)) return {lo:5, hi:30};
+  if (/förråd/.test(n)) return {lo:0, hi:25};
+  return {lo:17, hi:25};
+}
+const TSTOPS = [[-1e9,"#4c7dff"],[-5,"#45b2f0"],[5,"#3fc3b0"],[17,"#3fbf74"],[22.5,"#f0b429"],[25,"#f0703c"]];
+function tempChart(d, name){
+  const pr = tProfile(name), step = d.step, t0 = d.from, pts = [];
+  d.v.forEach((v,i) => { if (v != null) pts.push({t:t0+i*step, v}); });
+  if (pts.length < 2) return '<div class="muted small">Homey har inga mätvärden från den här givaren för perioden ännu.</div>';
+  const vals = pts.map(p => p.v), mn = Math.min(...vals), mx = Math.max(...vals), avg = vals.reduce((s,v)=>s+v,0)/vals.length;
+  // börja med givartypens normala område, vidga om värdena går utanför och avrunda till jämna steg
+  let lo = Math.min(pr.lo, mn - 1), hi = Math.max(pr.hi, mx + 1);
+  if (pr.out){ lo = Math.min(lo, mn - 2); hi = Math.max(hi, mx + 2); }
+  const raw = (hi-lo)/4, tick = [1,2,2.5,5,10,20].find(s => s >= raw) || 20;
+  lo = Math.floor(lo/tick)*tick; hi = Math.ceil(hi/tick)*tick;
+  const W = 320, H = 150, L = 30, top = 10, bot = H-24, n = d.v.length, t1 = t0+(n-1)*step, span = Math.max(1, t1-t0);
+  const x = t => L+(t-t0)/span*(W-L-4), y = v => top+(1-(v-lo)/(hi-lo))*(bot-top);
+  const path = () => { let s = "", prev = null; pts.forEach(p => { s += (prev && p.t-prev.t <= step*1.5 ? "L" : "M")+x(p.t).toFixed(1)+" "+y(p.v).toFixed(1); prev = p; }); return s; };
+  const area = () => { const out = []; let seg = []; pts.forEach(p => { if (seg.length && p.t-seg[seg.length-1].t > step*1.5){ out.push(seg); seg = []; } seg.push(p); }); if (seg.length) out.push(seg);
+    return out.filter(s => s.length > 1).map(s => "M"+x(s[0].t).toFixed(1)+" "+bot+s.map(p => "L"+x(p.t).toFixed(1)+" "+y(p.v).toFixed(1)).join("")+"L"+x(s[s.length-1].t).toFixed(1)+" "+bot+"Z").join(""); };
+  const ys = v => Math.max(0, Math.min(1, (y(v)-top)/(bot-top))), stops = [];
+  for (let i = TSTOPS.length-1; i >= 0; i--){ const from = i === TSTOPS.length-1 ? Math.max(hi, TSTOPS[i][0]) : TSTOPS[i+1][0], to = i === 0 ? lo : TSTOPS[i][0];
+    stops.push('<stop offset="'+ys(from).toFixed(4)+'" stop-color="'+TSTOPS[i][1]+'"/><stop offset="'+ys(to).toFixed(4)+'" stop-color="'+TSTOPS[i][1]+'"/>'); }
+  const grid = []; for (let v = lo; v <= hi + 1e-9; v += tick) grid.push('<line x1="'+L+'" x2="'+(W-4)+'" y1="'+y(v).toFixed(1)+'" y2="'+y(v).toFixed(1)+'" stroke="#8f9dc6" stroke-opacity="'+(Math.abs(v)<1e-9?".4":".14")+'"/><text x="'+(L-5)+'" y="'+(y(v)+3.5).toFixed(1)+'" font-size="9.5" fill="#8f9dc6" text-anchor="end">'+(v<0?"−":"")+fmtTick(Math.abs(v))+'°</text>');
+  const lim = pr.lim != null && pr.lim > lo && pr.lim < hi ? '<line x1="'+L+'" x2="'+(W-4)+'" y1="'+y(pr.lim).toFixed(1)+'" y2="'+y(pr.lim).toFixed(1)+'" stroke="#ff4f6d" stroke-opacity=".7" stroke-dasharray="4 3"/><text x="'+(W-6)+'" y="'+(y(pr.lim)-4).toFixed(1)+'" font-size="9.5" fill="#ff4f6d" text-anchor="end">'+pr.limTxt+'</text>' : "";
+  const gid = "tg"+n+Math.round(lo*10), last = pts[pts.length-1], lab = span > 2*86400000 ? t => dShort.format(t).split(" ").slice(0,2).join(" ") : t => tFmt.format(t);
+  const lc = TSTOPS.reduce((c,s) => last.v >= s[0] ? s[1] : c, TSTOPS[0][1]);
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block;touch-action:pan-y" role="img" aria-label="'+esc(name)+' över tid, lägst '+f1(mn)+'° och högst '+f1(mx)+'°">'+
+    '<defs><linearGradient id="'+gid+'" gradientUnits="userSpaceOnUse" x1="0" y1="'+top+'" x2="0" y2="'+bot+'">'+stops.join("")+'</linearGradient><linearGradient id="'+gid+'f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+lc+'" stop-opacity=".22"/><stop offset="1" stop-color="'+lc+'" stop-opacity="0"/></linearGradient></defs>'+grid.join("")+lim+
+    '<path d="'+area()+'" fill="url(#'+gid+'f)"/><path d="'+path()+'" fill="none" stroke="url(#'+gid+')" stroke-width="2.2" stroke-linejoin="round"/>'+
+    '<circle cx="'+x(last.t).toFixed(1)+'" cy="'+y(last.v).toFixed(1)+'" r="3.8" fill="'+lc+'" style="filter:drop-shadow(0 0 6px '+lc+')"/>'+
+    [[t0,"start",L],[t0+span/2,"middle",(L+W-4)/2],[t1,"end",W-4]].map(a => '<text x="'+a[2]+'" y="'+(H-6)+'" font-size="10" fill="#8f9dc6" text-anchor="'+a[1]+'">'+lab(a[0])+'</text>').join("")+'</svg>'+
+    '<div class="row xs muted num" style="gap:14px;margin-top:6px"><span>Lägst <b style="color:var(--text)">'+f1(mn)+'°</b></span><span>Snitt <b style="color:var(--text)">'+f1(avg)+'°</b></span><span>Högst <b style="color:var(--text)">'+f1(mx)+'°</b></span></div>';
+}
+const fmtTick = v => Number.isInteger(v) ? String(v) : f1(v);
+function tempHistCard(T, short){
+  const seg = '<div class="seg" style="margin-bottom:10px">'+[["last24Hours","24 timmar"],["last7Days","7 dygn"],["last31Days","31 dygn"]].map(r => '<button type="button" data-act="histres" data-v="'+r[0]+'" aria-pressed="'+(S.histRes===r[0])+'">'+r[1]+'</button>').join("")+'</div>';
+  const sel = T.find(d => d.id === S.histDev) || T[0];
+  const pick = '<div class="hours" data-keep="histdev" style="margin-bottom:10px">'+T.map(d => '<button type="button" class="more'+(sel&&sel.id===d.id?" sel":"")+'" style="flex:none" data-act="histdev" data-id="'+d.id+'">'+esc(short(d.name))+'</button>').join("")+'</div>';
+  if (!sel) return card({title:"Temperatur över tid", ic:"therm", c:"var(--accent)"}, '<div class="muted small">Inga givare.</div>');
+  const j = getVarJSON(VAR_TEMPH), p = j && j[effKey[S.histRes]], v = p && p.s && p.s[sel.id];
+  let body;
+  if (v) body = tempChart({from:p.from, step:p.step, v}, sel.name);
+  else if (j && j.d1) body = '<div class="muted small">Homey har ingen sparad historik för '+esc(short(sel.name))+' ännu.</div>';
+  else body = histBlockBody("homey:device:"+sel.id+":measure_temperature", v => f1(v)+"°", "#2ccfff");
+  return card({title:"Temperatur över tid", ic:"therm", c:"var(--accent)", right: sel.state.measure_temperature!=null ? '<span class="pill num">'+f1(sel.state.measure_temperature)+'°</span>' : ""}, pick+seg+body);
+}
 function viewKlimat(){
   if (!S.devices) return '<h1 class="vt">Klimat</h1>'+card({}, skel(4));
   const T = S.devices.filter(d => d.type === "sensor" && d.state.measure_temperature != null && d.id !== DEV.smhi);
@@ -1136,7 +1191,7 @@ function viewKlimat(){
     card({title:"Ute och pool", ic:"sun", c:"var(--info)"}, '<div class="temps">'+out.map(d=>tile(d)).join("")+'</div>')+'</div><div class="stack">'+ctl+'</div><div class="stack">'+
     card({title:"Kyl och frys", ic:"snow", c:"var(--snow)"}, '<div class="temps">'+cold.sort((a,b) => coldRank(a)-coldRank(b)).map(coldTile).join("")+'</div>')+
     (misc.length?card({title:"Övriga givare", ic:"therm", c:"var(--muted)"}, '<div class="temps">'+misc.map(d=>tile(d)).join("")+'</div>'):"")+
-    card({title:"Temperatur över tid", ic:"therm", c:"var(--accent)"}, '<div class="hours" data-keep="histdev" style="margin-bottom:10px">'+T.map(d => '<button type="button" class="more'+(S.histDev===d.id?" sel":"")+'" style="flex:none" data-act="histdev" data-id="'+d.id+'">'+esc(short(d.name))+'</button>').join("")+'</div>'+histBlock("homey:device:"+S.histDev+":measure_temperature", v => f1(v)+"°", "#2ccfff"))+'</div></div>';
+    tempHistCard(T, short)+'</div></div>';
 }
 
 /* ---------- media ---------- */
