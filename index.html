@@ -1050,17 +1050,19 @@ function alarmCard(){
   return card({title:"Larm", ic:"shield", c:"var(--"+(a.cls==="ok"?"ok":a.cls)+")", right:'<span class="pill '+a.cls+'">'+esc(a.label)+'</span>'}, body);
 }
 function energyCard(){
-  const dg = (dev(DEV.dongle)||{}).state, pu = (dev(DEV.pulse)||{}).state || {}, so = solState() || {}, z = (dev(DEV.zaptec)||{}).state || {};
-  if (!dg && !pu.measure_power) return card({title:"El just nu", ic:"bolt", c:"var(--warn)"}, skel(2));
+  /* Energidongeln har stått still sedan i mars: allt räknas från Tibber Pulse och flödet "App: Effekthistorik" */
+  const pu = (dev(DEV.pulse)||{}).state || {}, so = solState() || {}, z = (dev(DEV.zaptec)||{}).state || {}, td = (getVarJSON(VAR_EFF)||{}).today || {};
+  const FUSE = 20;  /* huvudsäkring i ampere */
+  if (pu.measure_power == null) return card({title:"El just nu", ic:"bolt", c:"var(--warn)"}, skel(2));
   const p = netPower(), exporting = p < 0, price = Number((S.vars[VAR.price]||{}).value), hasPrice = isFinite(price) && price > 0;
   const sol = so.measure_power, car = z.measure_power || 0;
   let body = '<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num">'+f2(Math.abs(p)/1000)+'</span><span class="unit">kW '+(exporting?"säljs till nätet":"köps från nätet")+'</span></div>'+(hasPrice?'<div style="text-align:right"><b class="num">'+f2(price)+' kr</b><div class="xs muted">per kWh nu</div></div>':'')+'</div>'+
     '<div class="tiles" style="margin-top:12px">'+
-    '<div class="tile"><div class="k">Solceller</div><div class="v num">'+f0(sol)+'<span class="unit">W</span></div><div class="s">'+f1(so["meter_power.day"])+' kWh idag</div></div>'+
+    '<div class="tile"><div class="k">Solceller</div><div class="v num">'+f0(sol)+'<span class="unit">W</span></div><div class="s">'+f1(td.sol != null ? td.sol : so["meter_power.day"])+' kWh idag</div></div>'+
     '<div class="tile"><div class="k">Laddbox</div><div class="v num">'+f1(car/1000)+'<span class="unit">kW</span></div><div class="s">'+(z["alarm_generic.car_connected"]?"Bil inkopplad":"Ingen bil")+'</div></div>'+
-    '<div class="tile"><div class="k">Köpt idag</div><div class="v num">'+f1(dg ? dg["meter_power.imported_today"] : pu.meter_power)+'<span class="unit">kWh</span></div>'+(pu.accumulatedCost!=null?'<div class="s">'+f0(pu.accumulatedCost)+' kr hittills</div>':'')+'</div>'+
-    '<div class="tile"><div class="k">Sålt idag</div><div class="v num">'+f1(dg && dg["meter_power.exported_today"])+'<span class="unit">kWh</span></div></div></div>';
-  if (dg) body += '<div class="lbl">Belastning per fas</div>'+[1,2,3].map(i => { const l = dg["measure_phase_load.phase"+i]||0; return '<div class="row xs" style="margin-top:5px"><span class="muted" style="width:20px">L'+i+'</span><div class="bar grow" style="--bc:'+(l>80?"var(--bad)":l>60?"var(--warn)":"var(--ok)")+'"><i style="width:'+clamp(l,0,100)+'%"></i></div><span class="num" style="width:54px;text-align:right">'+f1(dg["measure_current.phase"+i])+' A</span></div>'; }).join("");
+    '<div class="tile"><div class="k">Köpt idag</div><div class="v num">'+f1(pu.meter_power != null ? pu.meter_power : td.imp)+'<span class="unit">kWh</span></div>'+(pu.accumulatedCost!=null?'<div class="s">'+f0(pu.accumulatedCost)+' kr hittills</div>':'')+'</div>'+
+    '<div class="tile"><div class="k">Sålt idag</div><div class="v num">'+f1(td.exp)+'<span class="unit">kWh</span></div></div></div>';
+  if (pu["measure_current.L1"] != null) body += '<div class="lbl">Belastning per fas</div>'+[1,2,3].map(i => { const a = pu["measure_current.L"+i]||0, l = a/FUSE*100; return '<div class="row xs" style="margin-top:5px"><span class="muted" style="width:20px">L'+i+'</span><div class="bar grow" style="--bc:'+(l>80?"var(--bad)":l>60?"var(--warn)":"var(--ok)")+'"><i style="width:'+clamp(l,0,100)+'%"></i></div><span class="num" style="width:54px;text-align:right">'+f1(a)+' A</span></div>'; }).join("");
   return card({title:"El just nu", ic:"bolt", c:"var(--warn)", right:(so.alarm_problem||so.alarm_connectivity)?'<span class="pill warn">Kolla växelriktaren</span>':''}, body);
 }
 function shortcutsCard(){
