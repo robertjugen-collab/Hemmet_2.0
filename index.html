@@ -379,6 +379,7 @@ const QUICK = [
 ];
 const MOODS = [{label:"Nattlandskap", id:"856f0d25-cd2d-4df0-9143-057b95ce9678"},{label:"Lugn i köket", id:"b499f55c-d1cc-4ef6-ae78-d6ad9a6e1ad1"}];
 const ALARM = {arm:"2818e8dc-5531-44ae-b890-05a6de190801", night:"c6c3cc20-35e6-4e5b-995f-d69451db94d0", disarm:"1b81cfa7-1aa2-43ec-be3d-bb69f03ff345"};
+const VACRESET = {consumable_main_brush_hours_left:"ef62d314-3aec-4c09-8992-3939ed2a9546", consumable_side_brush_hours_left:"e4d8cae0-8319-4cf8-9de3-c43a9d48c679", consumable_filter_hours_left:"9976f1c9-10b7-45cf-84dd-da4726813804", consumable_sensor_hours_left:"416f2f5b-7587-4068-b49b-34837bb17e5c"};
 const VACF = {all:"ea6f460e-e8b8-45d4-adec-5371a53d7bfd", hall:"4e1cb185-8fa4-4ca5-9b00-e9a3e04588d6", kok:"0b6a61aa-5426-42c0-b099-405415af6caf", vard:"d6fa5670-3a12-4c8f-b786-f3d2981b892e", pause:"4cd1b275-0909-4c5b-9d39-fb22f17aeca5", resume:"ac06bceb-bd80-4e7d-abdb-e09f70b4d441", dock:"34dd8f74-9222-4e8f-b26b-30f1291be9e9"};
 const MOWF = {start:"33f478cc-763b-45af-873e-91f89ea39eec", pause:"3d60a1ee-5c38-4d1e-a2dd-fdbf67f5241d", resume:"114e7ac6-03ed-4024-90ac-9402b195fea6", stop:"271b24be-9b16-4230-9191-825d0e11fe94", dock:"65dd6e13-c57a-4149-bd3e-c7c9b332fb2e"};
 const SONOS_GROUP = [{label:"Gruppera alla", id:"ad7fa90b-3cb4-4e38-a5a9-b53d1b0b8fdf"},{label:"Kök lämnar", id:"7ea7c9c6-3061-4112-b587-d31bbdffdf1a"},{label:"Badrum lämnar", id:"f56fb50d-362f-4bc7-aa99-41511159cba8"},{label:"Toalett lämnar", id:"70765098-5a69-46c3-a3a6-389186894fa3"}];
@@ -1281,7 +1282,7 @@ function vacSheet(d){
   const fb = (id, label, done, pri, icn) => '<button type="button" class="btn'+(pri?" pri":"")+'" data-act="flow" data-id="'+id+'" data-done="'+done+'">'+(icn?ic(icn,14):"")+label+'</button>';
   const seg = (cap, opts) => '<div class="seg">'+opts.map(o => '<button type="button" data-act="cap" data-id="'+d.id+'" data-cap="'+cap+'" data-v="'+o[0]+'" aria-pressed="'+(String(v[cap])===o[0])+'">'+o[1]+'</button>').join("")+'</div>';
   const cons = [["Huvudborste","consumable_main_brush_hours_left"],["Sidoborste","consumable_side_brush_hours_left"],["Filter","consumable_filter_hours_left"],["Sensorer","consumable_sensor_hours_left"]].filter(c => v[c[1]] != null)
-    .map(c => { const h = v[c[1]], due = h <= 0; return '<div><div class="xs muted">'+c[0]+'</div><b class="num" style="color:'+(due?"var(--warn)":"inherit")+'">'+(due?"Dags att byta":f0(h)+" h kvar")+'</b></div>'; }).join("");
+    .map(c => { const h = v[c[1]], due = h <= 0, armed = S.consArm === c[1]; return '<div><div class="xs muted">'+c[0]+'</div><b class="num" style="color:'+(due?"var(--warn)":"inherit")+'">'+(due?(c[0]==="Sensorer"?"Dags att rengöra":"Dags att byta"):f0(h)+" h kvar")+'</b>'+(VACRESET[c[1]]?'<button type="button" class="btn" style="margin-top:8px;width:100%;padding:8px 10px;font-size:13px'+(armed?';background:var(--warn);color:#1a1300':'')+'" data-act="consreset" data-k="'+c[1]+'" data-label="'+c[0]+'">'+(armed?"Tryck igen":"Nollställ")+'</button>':'')+'</div>'; }).join("");
   const notes = []; if (v.alarm_bin_full) notes.push("Behållaren är full"); if (v.alarm_tank_empty||v.alarm_water_box_empty) notes.push("Vattentanken är tom"); if (v.alarm_tank_full) notes.push("Smutsvattentanken är full"); if (v.alarm_stuck) notes.push("Har fastnat");
   return '<div class="scrim" data-act="sheet-close"><div class="sheet" role="dialog" aria-modal="true" aria-label="Marie-Claude"><div class="grabzone"><div class="grab"></div>'+
     '<div class="row"><div class="grow"><h2 style="font-size:21px">Marie-Claude</h2><div class="small muted">'+esc(zoneOf(d))+'</div></div><span class="pill '+(prob?"bad":v.is_cleaning?"ok":"")+'">'+esc(txt)+'</span><button type="button" class="iconbtn" data-act="sheet-x" aria-label="Stäng">'+ic("x",18)+'</button></div></div>'+
@@ -1643,6 +1644,9 @@ document.addEventListener("click", e => {
   else if (a === "zone"){ const on = b.dataset.on === "1", m = {}; lights().filter(d => zoneOf(d) === b.dataset.zone).forEach(d => m[d.id] = {onoff:on}); setCaps(m, (on?"Tände ":"Släckte ")+b.dataset.zone); }
   else if (a === "temp"){ const cur = Number(st(id,"target_temperature"))||20, nv = clamp(Math.round((cur+Number(b.dataset.d))*2)/2, 5, 35); setCaps({[id]:{target_temperature:nv}}, "Mål "+f1(nv)+"°"); }
   else if (a === "lamp"){ S.sheet = {id}; renderSheet(); }
+  else if (a === "consreset"){ const k = b.dataset.k; /* two taps so a stray tap does not reset the counter */
+    if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
+    else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
   else if (a === "lmode"){ const sid = S.sheet.id; setCaps({[sid]:{onoff:true, light_mode:b.dataset.v === "color" ? "color" : "temperature"}}); }
   else if (a === "white"){ const sid = S.sheet.id, d = S.byId[sid], c = {onoff:true, light_temperature:Number(b.dataset.v)}; if (hasColor(d)) c.light_mode = "temperature"; setCaps({[sid]:c}); }
