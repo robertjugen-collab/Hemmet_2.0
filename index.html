@@ -874,7 +874,7 @@ const COLORS = [["Röd",0,1],["Orange",.07,1],["Gul",.14,1],["Bajen",.39,1],["Tu
 function renderSheet(){
   const host = $("#sheetHost");
   if (!S.sheet){ host.innerHTML = ""; return; }
-  if (S.sheet.kind === "vac"){ const v = dev(DEV.vac); if (!v){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = vacSheet(v); bindSheetDrag(); return; }
+  if (S.sheet.kind){ const k = S.sheet.kind, v = dev(k==="vac"?DEV.vac:k==="mower"?DEV.mower:DEV.zaptec); if (!v){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = (k==="vac"?vacSheet:k==="mower"?mowerSheet:carSheet)(v); bindSheetDrag(); return; }
   const d = S.byId[S.sheet.id]; if (!d){ S.sheet = null; host.innerHTML = ""; return; }
   const s = d.state, on = !!s.onoff, col = hasColor(d), mode = col && s.light_mode === "color" ? "color" : "white";
   const pct = Math.round((s.dim==null?1:s.dim)*100), lc = lampCss(d) || "var(--lamp)";
@@ -1253,7 +1253,7 @@ const MOW = {mowing:"Klipper", working:"Klipper", paused:"Pausad", pause:"Pausad
 function mowText(v){ if (v==null||v==="") return null; const k = String(v).toLowerCase().replace(/\s+/g,"_"); return MOW[k] || String(v).replace(/_/g," ").replace(/^./,c=>c.toUpperCase()); }
 const mins = v => v==null||isNaN(v) ? "–" : v>=60 ? Math.floor(v/60)+" h "+Math.round(v%60)+" min" : Math.round(v)+" min";
 function carCard(){
-  const z = (dev(DEV.zaptec)||{}).state, img = '<img class="mimg" src="'+CAR_IMG+'" alt="Cupra Born" width="760" height="346">';
+  const z = (dev(DEV.zaptec)||{}).state, img = '<button type="button" class="imgbtn" data-act="msheet" data-k="car" aria-label="Öppna mer om Cupra Born och laddboxen"><img class="mimg" src="'+CAR_IMG+'" alt="Cupra Born" width="760" height="346"></button><div class="xs muted" style="text-align:center;margin:-2px 0 10px">Tryck på bilden för mer</div>';
   if (!z) return card({title:"Cupra Born", ic:"car", c:"var(--warn)"}, img+skel(2));
   const con = !!z["alarm_generic.car_connected"], kw = (z.measure_power||0)/1000, chg = kw > .1, sess = z["meter_power.current_session"]||0, price = Number((S.vars[VAR.price]||{}).value);
   let b = img+'<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num">'+f1(sess)+'</span><span class="unit">kWh denna laddning</span></div><div style="text-align:right"><b class="num">≈ '+f0(sess/0.17)+' km</b><div class="xs muted">räckvidd påfylld</div></div></div>'+
@@ -1301,10 +1301,48 @@ function vacSheet(d){
     '<div class="xs muted" style="margin-top:12px">'+(v.mop_attached?"Mopp monterad":"Ingen mopp")+(v.water_box_attached?" · vattentank på plats":"")+'</div>'+
     '</div></div>';
 }
+/* shared frame for the machine pop-ups */
+function sheetFrame(title, sub, pill, body){
+  return '<div class="scrim" data-act="sheet-close"><div class="sheet" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="grabzone"><div class="grab"></div>'+
+    '<div class="row"><div class="grow"><h2 style="font-size:21px">'+esc(title)+'</h2><div class="small muted">'+esc(sub)+'</div></div>'+pill+'<button type="button" class="iconbtn" data-act="sheet-x" aria-label="Stäng">'+ic("x",18)+'</button></div></div>'+body+'</div></div>';
+}
+const kv = (k, v, warn) => '<div><div class="xs muted">'+k+'</div><b class="num" style="color:'+(warn?"var(--warn)":"inherit")+'">'+v+'</b></div>';
+const sigText = r => r==null ? "–" : r > -60 ? "Stark ("+f0(r)+" dBm)" : r > -72 ? "Bra ("+f0(r)+" dBm)" : r > -80 ? "Svag ("+f0(r)+" dBm)" : "Mycket svag ("+f0(r)+" dBm)";
+function mowerSheet(d){
+  const s = d.state, low = String(s.mower_status||"").toLowerCase(), mowing = /mow|work/.test(low), paused = /pause/.test(low), prob = /error|stuck|fault/.test(low) || s.alarm_generic === true, prog = s.measure_mow_progress;
+  const fb = (id, label, icn, pri) => '<button type="button" class="btn'+(pri?" pri":"")+'" data-act="flow" data-id="'+id+'" data-done="'+label+'">'+ic(icn,14)+label+'</button>';
+  const bump = s.mow_bumper_state, pos = String(s.mow_pos_level||"");
+  return sheetFrame("Yuka", zoneOf(d), '<span class="pill '+(prob?"bad":mowing?"ok":paused?"warn":"")+'">'+esc(mowText(s.mower_status)||"Okänt")+'</span>',
+    '<img class="mimg" src="'+YUKA_IMG+'" alt="" width="640" height="469" style="max-width:280px;margin-top:10px">'+
+    '<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num">'+f0(s.measure_battery)+'</span><span class="unit">% batteri</span></div><div style="text-align:right"><b class="num">'+(prog!=null?f0(prog)+" %":"–")+'</b><div class="xs muted">av gräsmattan klar</div></div></div>'+
+    '<div class="bar" style="margin-top:10px;--bc:'+((s.measure_battery||0)<20?"var(--bad)":"var(--ok)")+'"><i style="width:'+clamp(s.measure_battery||0,0,100)+'%"></i></div>'+
+    ((mowing||paused)&&s.measure_left_time!=null?'<div class="xs muted" style="margin-top:6px">'+mins(s.measure_left_time)+' kvar av klippningen</div>':'')+
+    '<div class="lbl">Styr</div><div class="btnrow">'+(mowing?fb(MOWF.pause,"Pausa","pause",1):paused?fb(MOWF.resume,"Fortsätt","play",1):fb(MOWF.start,"Klipp","play",1))+fb(MOWF.dock,"Till dockan","home")+fb(MOWF.stop,"Stoppa","power")+'</div>'+
+    '<div class="lbl">Klippläge</div><div class="seg">'+[["economic","Eko"],["standard","Standard"],["performance","Kraft"]].map(m => '<button type="button" data-act="cap" data-id="'+d.id+'" data-cap="mow_cutter_mode" data-v="'+m[0]+'" aria-pressed="'+(s.mow_cutter_mode===m[0])+'">'+m[1]+'</button>').join("")+'</div>'+
+    '<div class="row" style="margin-top:12px"><span class="grow">Strålkastare</span><button type="button" class="sw" role="switch" aria-checked="'+!!s.mow_headlamp+'" data-act="toggle" data-id="'+d.id+'" data-cap="mow_headlamp" aria-label="Strålkastare"></button></div>'+
+    '<div class="lbl">Gräsmattan</div><div class="cons">'+kv("Yta på kartan", s.measure_mow_area!=null?f0(s.measure_mow_area)+" m²":"–")+kv("Klipphöjd", s.mow_blade_height!=null?f0(s.mow_blade_height)+" mm":"–")+'</div>'+
+    '<div class="lbl">Statistik</div><div class="cons">'+kv("Körsträcka totalt", s.measure_total_distance!=null?f0(s.measure_total_distance)+" km":"–")+kv("Arbetstid totalt", s.measure_total_work_time!=null?f0(s.measure_total_work_time)+" h":"–")+kv("Knivarna använda", s.measure_blade_used_time!=null?f0(s.measure_blade_used_time)+" h":"–")+kv("Hastighet nu", s.measure_mowing_speed!=null?f1(s.measure_mowing_speed)+" m/s":"–")+'</div>'+
+    '<div class="lbl">Anslutning och sensorer</div><div class="cons">'+kv("Wifi", sigText(s.measure_wifi_rssi))+kv("GPS", s.measure_gps_stars!=null?f0(s.measure_gps_stars)+" satelliter":"–", s.measure_gps_stars!=null&&s.measure_gps_stars<5)+kv("Positionering", pos ? pos.toUpperCase() : "–")+kv("Stötfångare", bump==null?"–":String(bump).toLowerCase()==="ok"?"OK":esc(String(bump)), bump!=null&&String(bump).toLowerCase()!=="ok")+'</div>'+
+    (s.last_sync?'<div class="xs muted" style="margin-top:12px">Senast synkad '+esc(String(s.last_sync).slice(0,16))+'</div>':''));
+}
+function carSheet(d){
+  const z = d.state, con = !!z["alarm_generic.car_connected"], kw = (z.measure_power||0)/1000, chg = kw > .1, sess = z["meter_power.current_session"]||0, price = Number((S.vars[VAR.price]||{}).value), FUSE = z.available_installation_current > 0 ? z.available_installation_current : 16;
+  const ph = [1,2,3].map(i => { const a = z["measure_current.phase"+i], v = z["measure_voltage.phase"+i]; return '<div class="row" style="margin-top:8px;gap:10px"><span class="xs muted" style="width:22px">L'+i+'</span><div class="bar grow" style="--bc:var(--warn)"><i style="width:'+clamp((a||0)/FUSE*100,0,100)+'%"></i></div><span class="xs num" style="width:118px;text-align:right">'+(a!=null?f1(a)+" A":"–")+' · '+(v!=null?f0(v)+" V":"–")+'</span></div>'; }).join("");
+  const tot = z.meter_power;
+  return sheetFrame("Cupra Born", "Laddbox Zaptec Go 2 i carporten", '<span class="pill '+(chg?"ok":con?"info":"")+'">'+esc(chargeText(z))+'</span>',
+    '<img class="mimg" src="'+CAR_IMG+'" alt="" width="760" height="346" style="margin-top:10px">'+
+    '<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num">'+f1(sess)+'</span><span class="unit">kWh denna laddning</span></div><div style="text-align:right"><b class="num">≈ '+f0(sess/0.17)+' km</b><div class="xs muted">räckvidd påfylld</div></div></div>'+
+    '<div class="xs muted" style="margin-top:4px">'+(isFinite(price)&&price>0&&sess?'Cirka '+f0(sess*price)+' kr till dagens pris':'')+'</div>'+
+    '<div class="btnrow" style="margin-top:12px"><button type="button" class="btn'+(con?" pri":"")+'" data-act="toggle" data-id="'+d.id+'" data-cap="charging_button" '+(con?"":"disabled style=\"opacity:.5\"")+'>'+ic(chg?"pause":"bolt",16)+(chg?"Pausa laddningen":con?"Ladda nu":"Ingen bil inkopplad")+'</button></div>'+
+    '<div class="lbl">Faser just nu</div><div class="xs muted">Ström per fas mot säkringen på '+FUSE+' A</div>'+ph+
+    '<div class="lbl">Laddningar</div><div class="cons">'+kv("Effekt nu", f1(kw)+" kW")+kv("Förra laddningen", z["meter_power.last_session"]!=null?f1(z["meter_power.last_session"])+" kWh":"–")+kv("Totalt laddat", tot!=null?f0(tot)+" kWh":"–")+kv("Motsvarar ungefär", tot!=null?f0(tot/0.17)+" km":"–")+'</div>'+
+    '<div class="lbl">Laddboxen</div><div class="cons">'+kv("Temperatur", z.measure_temperature!=null?f1(z.measure_temperature)+" °C":"–")+kv("Luftfuktighet", z.measure_humidity!=null?f0(z.measure_humidity)+" %":"–")+kv("Wifi", sigText(z.measure_signal_strength), z.measure_signal_strength!=null&&z.measure_signal_strength<=-80)+kv("Kabeln", z.cable_permanent_lock?"Låst i boxen":"Inte låst")+'</div>'+
+    '<div class="note">Bilens egen batterinivå finns inte i Homey. Räckvidden är räknad på 17 kWh per 100 km.</div>');
+}
 function mowerCard(){
   const d = dev(DEV.mower); if (!d) return card({title:"Gräsklipparen Yuka", ic:"grass", c:"var(--ok)"}, skel(2));
   const s = d.state, low = String(s.mower_status||"").toLowerCase(), mowing = /mow|work/.test(low), paused = /pause/.test(low), prob = /error|stuck|fault/.test(low) || s.alarm_generic === true, prog = s.measure_mow_progress;
-  const img = '<img class="mimg" src="'+YUKA_IMG+'" alt="Robotgräsklipparen Yuka" width="640" height="469" style="max-width:240px">';
+  const img = '<button type="button" class="imgbtn" data-act="msheet" data-k="mower" aria-label="Öppna mer om Yuka"><img class="mimg" src="'+YUKA_IMG+'" alt="Robotgräsklipparen Yuka" width="640" height="469" style="max-width:240px"></button><div class="xs muted" style="text-align:center;margin:-2px 0 10px">Tryck på bilden för mer</div>';
   const fb = (id, label, icn, pri) => '<button type="button" class="btn'+(pri?" pri":"")+'" data-act="flow" data-id="'+id+'" data-done="'+label+'">'+ic(icn,14)+label+'</button>';
   return card({title:"Gräsklipparen Yuka", ic:"grass", c:"var(--ok)", right:'<span class="pill '+(prob?"bad":mowing?"ok":paused?"warn":"")+'">'+esc(mowText(s.mower_status)||"Okänt")+'</span>'},
     img+'<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num">'+f0(s.measure_battery)+'</span><span class="unit">% batteri</span></div><div style="text-align:right"><b class="num">'+(s.mow_blade_height!=null?f0(s.mow_blade_height)+" mm":"–")+'</b><div class="xs muted">klipphöjd</div></div></div>'+
@@ -1649,6 +1687,7 @@ document.addEventListener("click", e => {
     if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
     else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
+  else if (a === "msheet"){ const k = b.dataset.k; S.sheet = {id:k==="mower"?DEV.mower:DEV.zaptec, kind:k}; renderSheet(); }
   else if (a === "lmode"){ const sid = S.sheet.id; setCaps({[sid]:{onoff:true, light_mode:b.dataset.v === "color" ? "color" : "temperature"}}); }
   else if (a === "white"){ const sid = S.sheet.id, d = S.byId[sid], c = {onoff:true, light_temperature:Number(b.dataset.v)}; if (hasColor(d)) c.light_mode = "temperature"; setCaps({[sid]:c}); }
   else if (a === "color"){ setCaps({[S.sheet.id]:{onoff:true, light_mode:"color", light_hue:Number(b.dataset.h), light_saturation:Number(b.dataset.s)}}); }
