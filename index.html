@@ -201,6 +201,8 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 /* machines */
 .mimg{display:block;width:100%;max-width:420px;height:auto;margin:-2px auto 8px;filter:drop-shadow(0 12px 14px rgba(0,0,0,.28))}
 .imgbtn{display:block;margin:0 auto;padding:0;background:none;border:0;cursor:pointer;border-radius:18px;-webkit-tap-highlight-color:transparent}.imgbtn:active .mimg{transform:scale(.97)}.imgbtn .mimg{transition:transform .15s}
+.rowbtn{all:unset;box-sizing:border-box;display:block;min-width:0;cursor:pointer;border-radius:8px}.rowbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sbars{display:flex;align-items:flex-end;gap:4px;height:96px;margin-top:8px}.sbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}.sbars i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--snow);min-height:2px}.sbars .fut i{background:repeating-linear-gradient(45deg,var(--snow) 0 4px,rgba(255,255,255,.25) 4px 8px)}.sbars span{font-size:11px;margin-top:4px;color:var(--muted);white-space:nowrap}.sbars b{font-size:11px;margin-bottom:2px}
 .cons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cons>div{padding:10px 12px;border-radius:13px;background:rgba(36,49,96,.45)}
 .bar{height:9px;border-radius:5px;background:var(--surface-3);overflow:hidden}
 .bar i{display:block;height:100%;border-radius:5px;background:var(--bc,var(--accent));transition:width .4s}
@@ -874,6 +876,7 @@ const COLORS = [["Röd",0,1],["Orange",.07,1],["Gul",.14,1],["Bajen",.39,1],["Tu
 function renderSheet(){
   const host = $("#sheetHost");
   if (!S.sheet){ host.innerHTML = ""; return; }
+  if (S.sheet.kind === "ski"){ const r = ((snowData()||{}).rows||[]).find(x => x.name === S.sheet.name); if (!r){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = skiSheet(r); bindSheetDrag(); return; }
   if (S.sheet.kind){ const k = S.sheet.kind, v = dev(k==="vac"?DEV.vac:k==="mower"?DEV.mower:DEV.zaptec); if (!v){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = (k==="vac"?vacSheet:k==="mower"?mowerSheet:carSheet)(v); bindSheetDrag(); return; }
   const d = S.byId[S.sheet.id]; if (!d){ S.sheet = null; host.innerHTML = ""; return; }
   const s = d.state, on = !!s.onoff, col = hasColor(d), mode = col && s.light_mode === "color" ? "color" : "white";
@@ -1405,15 +1408,35 @@ function snowData(){
     const pl = PLACES[i]; if (!pl || !p || !p.daily || !p.daily.time) return null;
     const t = p.daily.time, sf = p.daily.snowfall_sum || [], ti = t.indexOf(today) >= 0 ? t.indexOf(today) : Math.min(7, t.length-1);
     const sum = (a, b) => { let s = 0; for (let k = Math.max(0,a); k <= Math.min(b, sf.length-1); k++) s += sf[k]||0; return s; };
-    return {name:pl[0], region:pl[1], ski:!!pl[2], home:i===HOME_IDX, depth:p.current && p.current.snow_depth != null ? p.current.snow_depth*100 : null, temp:p.current ? p.current.temperature_2m : null, elev:p.elevation, p1:sum(ti,ti), p3:sum(ti-2,ti), p7:sum(ti-6,ti), f3:sum(ti+1,ti+3)};
+    return {raw:p, ti, name:pl[0], region:pl[1], ski:!!pl[2], home:i===HOME_IDX, depth:p.current && p.current.snow_depth != null ? p.current.snow_depth*100 : null, temp:p.current ? p.current.temperature_2m : null, elev:p.elevation, p1:sum(ti,ti), p3:sum(ti-2,ti), p7:sum(ti-6,ti), f3:sum(ti+1,ti+3)};
   }).filter(Boolean);
   return rows.length ? {rows, at:j[0] && j[0].current && j[0].current.time} : null;
 }
 function rankList(rows, key, unit, n, sub){
   const top = rows.slice().sort((a,b) => b[key]-a[key]), max = Math.max(1, top[0] ? top[0][key] : 1), show = top.slice(0, n), home = rows.find(r => r.home);
   const fv = cfg().ski, star = r => sub && r.ski ? '<button type="button" class="starb'+(fv.includes(r.name)?" on":"")+'" data-act="skifav" data-n="'+esc(r.name)+'" aria-label="'+(fv.includes(r.name)?"Ta bort":"Lägg till")+' '+esc(r.name)+' som favorit" aria-pressed="'+fv.includes(r.name)+'">'+(fv.includes(r.name)?"★":"☆")+'</button>' : '';
-  const line = (r, i) => '<div class="rank'+(r.home?" me":"")+'"><span class="rn num">'+(r.home&&i>=n?"":i+1)+'</span><div class="grow" style="min-width:0"><div class="ellip"><span style="font-weight:600">'+esc(r.name)+'</span>'+(r.ski?'<span class="tag">skidort</span>':'')+'</div><div class="xs muted ellip">'+esc(sub?sub(r):r.region)+'</div></div><span class="row" style="gap:6px"><b class="num">'+f0(r[key])+' '+unit+'</b>'+star(r)+'</span><div class="rb"><i style="width:'+clamp(r[key]/max*100,0,100)+'%"></i></div></div>';
+  const line = (r, i) => '<div class="rank'+(r.home?" me":"")+'"><span class="rn num">'+(r.home&&i>=n?"":i+1)+'</span><button type="button" class="grow rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" aria-label="Mer om '+esc(r.name)+'"><div class="ellip"><span style="font-weight:600">'+esc(r.name)+'</span>'+(r.ski?'<span class="tag">skidort</span>':'')+'</div><div class="xs muted ellip">'+esc(sub?sub(r):r.region)+'</div></button><span class="row" style="gap:6px"><b class="num">'+f0(r[key])+' '+unit+'</b>'+star(r)+'</span><div class="rb"><i style="width:'+clamp(r[key]/max*100,0,100)+'%"></i></div></div>';
   return show.map(line).join("") + (home && !show.includes(home) ? line(home, top.indexOf(home)) : "");
+}
+/* pop-up for one place in the snow lists: weather now, snowfall day by day and the next days */
+function skiSheet(r){
+  const p = r.raw || {}, cu = p.current || {}, d = p.daily || {}, t = d.time || [], ti = r.ti, fav = cfg().ski.includes(r.name);
+  const days = []; for (let k = Math.max(0, ti-6); k < t.length; k++) days.push(k);
+  const max = Math.max(1, ...days.map(k => (d.snowfall_sum||[])[k]||0));
+  const lbl = k => k === ti ? "Idag" : dShort.format(new Date(t[k]+"T12:00:00")).split(" ")[0].replace(".","");
+  const bars = '<div class="sbars">'+days.map(k => { const v = (d.snowfall_sum||[])[k]||0; return '<div class="'+(k>ti?"fut":"")+'"><b class="num">'+(v>=0.5?f0(v):"")+'</b><i style="height:'+(v/max*70)+'%;'+(k===ti?"box-shadow:0 0 0 2px var(--accent)":"")+'"></i><span>'+lbl(k)+'</span></div>'; }).join("")+'</div>';
+  const fc = []; for (let k = ti+1; k < t.length && fc.length < 3; k++) fc.push(k);
+  const fcHtml = fc.map(k => '<div class="li"><b style="width:104px;white-space:nowrap;text-transform:capitalize">'+esc(dShort.format(new Date(t[k]+"T12:00:00")))+'</b><span style="color:var(--info)">'+ic(wmoIcon((d.weather_code||[])[k]),20)+'</span><span class="grow small muted ellip" style="margin-left:8px">'+esc(WMO[(d.weather_code||[])[k]]||"")+'</span><span class="num small" style="white-space:nowrap">'+((d.temperature_2m_max||[])[k]!=null?f0(d.temperature_2m_max[k])+"° / "+f0(d.temperature_2m_min[k])+"°":"")+'</span><b class="num" style="width:58px;text-align:right">'+f0((d.snowfall_sum||[])[k]||0)+' cm</b></div>').join("");
+  const q = encodeURIComponent(r.name+" webbkamera");
+  return sheetFrame(r.name, r.region+(p.elevation!=null?" · "+f0(p.elevation)+" m ö.h.":""), cu.weather_code!=null?'<span class="pill">'+esc(WMO[cu.weather_code]||"")+'</span>':'',
+    '<div class="row" style="align-items:flex-end;margin-top:14px"><div class="grow"><span class="big num">'+(r.depth!=null?f0(r.depth):"–")+'</span><span class="unit">cm snödjup</span></div><div style="text-align:right"><b class="num">'+(r.temp!=null?f1(r.temp)+"°":"–")+'</b><div class="xs muted">'+(cu.wind_speed_10m!=null?"vind "+f0(cu.wind_speed_10m)+" m/s":"just nu")+'</div></div></div>'+
+    '<div class="cons" style="margin-top:12px">'+kv("Nysnö idag", f0(r.p1)+" cm")+kv("Senaste 3 dygnen", f0(r.p3)+" cm")+kv("Senaste 7 dygnen", f0(r.p7)+" cm")+kv("Väntas 3 dygn", f0(r.f3)+" cm")+'</div>'+
+    '<div class="lbl">Snöfall dag för dag</div>'+bars+'<div class="xs muted" style="margin-top:4px">Randiga staplar är prognos.</div>'+
+    (fc.length?'<div class="lbl">Kommande dagar</div>'+fcHtml:'')+
+    '<div class="lbl">Webbkameror</div><a class="btn pri" style="width:100%;justify-content:center;text-decoration:none" href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener">'+ic("play",14)+'Sök webbkameror i '+esc(r.name)+'</a>'+
+    '<div class="xs muted" style="margin-top:6px">Öppnas i webbläsaren. Appen kan inte visa bilder från andra sajter direkt.</div>'+
+    (r.ski?'<div class="btnrow" style="margin-top:14px"><button type="button" class="btn" data-act="skifav" data-n="'+esc(r.name)+'">'+(fav?"★ Ta bort från Mina skidorter":"☆ Lägg till i Mina skidorter")+'</button></div>':'')+
+    '<div class="note">Modellberäknat av Open-Meteo för orten, inte skidortens egen rapport.</div>');
 }
 function snowCards(){
   const s = snowData(), src = 'Modellberäknat av Open-Meteo för 45 platser i Sverige'+(s&&s.at?', senast '+esc(String(s.at).slice(11,16)):'')+'. Skidorternas egna rapporter kan skilja sig.';
@@ -1430,7 +1453,7 @@ function snowCards(){
     (ski.some(r => r.depth >= 1) ? rankList(ski, "depth", "cm", S.skiAll ? ski.length : 10, r => r.region+(r.temp!=null?" · "+f0(r.temp)+"°":"")+(r.p3>=1?" · +"+f0(r.p3)+" cm på 3 dygn":"")) : '<div class="muted" style="padding:12px 0">Modellen visar inget snötäcke på någon av skidorterna ännu.</div>')+
     '<div class="note">Tryck på stjärnan för att lägga en ort bland dina favoriter. Snödjupet gäller terrängen runt orten enligt vädermodellen, inte pistens konstsnö.</div>');
   const mine = s.rows.filter(r => cfg().ski.includes(r.name));
-  const favC = mine.length ? card({title:"Mina skidorter", ic:"ski", c:"var(--pink)"}, mine.map(r => '<div class="li" style="align-items:flex-start"><span class="grow" style="min-width:0"><div style="font-weight:700">'+esc(r.name)+'</div><div class="xs muted">'+esc(r.region)+(r.temp!=null?" · "+f0(r.temp)+"° nu":"")+'</div></span><span style="text-align:right"><b class="mid num" style="font-size:20px">'+f0(r.depth)+' cm</b><div class="xs muted num">+'+f0(r.p3)+' cm på 3 dygn · '+f0(r.f3)+' cm väntas</div></span></div>').join("")) : "";
+  const favC = mine.length ? card({title:"Mina skidorter", ic:"ski", c:"var(--pink)"}, mine.map(r => '<div class="li" style="align-items:flex-start"><span class="grow" style="min-width:0"><button type="button" class="rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" style="font-weight:700">'+esc(r.name)+' <span class="muted">›</span></button><div class="xs muted">'+esc(r.region)+(r.temp!=null?" · "+f0(r.temp)+"° nu":"")+'</div></span><span style="text-align:right"><b class="mid num" style="font-size:20px">'+f0(r.depth)+' cm</b><div class="xs muted num">+'+f0(r.p3)+' cm på 3 dygn · '+f0(r.f3)+' cm väntas</div></span></div>').join("")) : "";
   return favC + fall + depth;
 }
 function viewVader(){ return '<h1 class="vt">Väder och snö</h1><div class="grid"><div class="stack">'+nowCard()+hoursCard()+'</div><div class="stack">'+daysCard()+'</div><div class="stack">'+snowCards()+'</div></div>'; }
@@ -1686,6 +1709,7 @@ document.addEventListener("click", e => {
   else if (a === "consreset"){ const k = b.dataset.k; /* two taps so a stray tap does not reset the counter */
     if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
     else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
+  else if (a === "skisheet"){ S.sheet = {kind:"ski", name:b.dataset.n}; renderSheet(); }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
   else if (a === "msheet"){ const k = b.dataset.k; S.sheet = {id:k==="mower"?DEV.mower:DEV.zaptec, kind:k}; renderSheet(); }
   else if (a === "lmode"){ const sid = S.sheet.id; setCaps({[sid]:{onoff:true, light_mode:b.dataset.v === "color" ? "color" : "temperature"}}); }
@@ -1708,7 +1732,7 @@ document.addEventListener("click", e => {
   else if (a === "sceneedit"){ S.sceneEdit = !S.sceneEdit; render(); }
   else if (a === "myscene"){ const s = cfg().scenes[Number(b.dataset.i)]; if (s){ const m = {}; Object.keys(s.m).forEach(k => { if (S.byId[k]) m[k] = s.m[k]; }); setCaps(m, "Scenen "+s.n+" är på", b); } }
   else if (a === "scenedel"){ const c = cfg(), i = Number(b.dataset.i), n = (c.scenes[i]||{}).n; if (c.scenes.length <= 1) S.sceneEdit = false; saveCfg({scenes:c.scenes.filter((_,k) => k !== i), ski:c.ski}, "Tog bort "+n); }
-  else if (a === "skifav"){ const c = cfg(), n = b.dataset.n, on = c.ski.includes(n); saveCfg({scenes:c.scenes, ski:on ? c.ski.filter(x => x !== n) : c.ski.concat([n])}, on ? n+" borttagen" : n+" är favorit"); }
+  else if (a === "skifav"){ const c = cfg(), n = b.dataset.n, on = c.ski.includes(n); saveCfg({scenes:c.scenes, ski:on ? c.ski.filter(x => x !== n) : c.ski.concat([n])}, on ? n+" borttagen" : n+" är favorit"); if (S.sheet) setTimeout(renderSheet, 50); }
   else if (a === "skiall"){ S.skiAll = !S.skiAll; render(); }
   else if (a === "filter-ask"){ S.confirmFilter = true; render(); }
   else if (a === "morning"){ goodMorning(b); }
