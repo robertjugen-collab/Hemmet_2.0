@@ -201,6 +201,7 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 /* machines */
 .mimg{display:block;width:100%;max-width:420px;height:auto;margin:-2px auto 8px;filter:drop-shadow(0 12px 14px rgba(0,0,0,.28))}
 .imgbtn{display:block;margin:0 auto;padding:0;background:none;border:0;cursor:pointer;border-radius:18px;-webkit-tap-highlight-color:transparent}.imgbtn:active .mimg{transform:scale(.97)}.imgbtn .mimg{transition:transform .15s}
+.camrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin-top:8px;padding-bottom:4px}.camrow figure{flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}.camrow img{display:block;width:100%;height:auto;border-radius:14px;background:#0a1028}.camrow figcaption{font-size:13px;color:var(--muted);margin-top:6px}
 .rowbtn{all:unset;box-sizing:border-box;display:block;min-width:0;cursor:pointer;border-radius:8px}.rowbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sbars{display:flex;align-items:flex-end;gap:4px;height:96px;margin-top:8px}.sbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}.sbars i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--snow);min-height:2px}.sbars .fut i{background:repeating-linear-gradient(45deg,var(--snow) 0 4px,rgba(255,255,255,.25) 4px 8px)}.sbars span{font-size:11px;margin-top:4px;color:var(--muted);white-space:nowrap}.sbars b{font-size:11px;margin-bottom:2px}
 .cons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cons>div{padding:10px 12px;border-radius:13px;background:rgba(36,49,96,.45)}
@@ -366,10 +367,13 @@ const DEV = {
   smhi:"5335d859-42a1-404c-9973-fa740bfc5e63", ute:"8f82ef0f-1c3e-4d52-b5a6-042189925bec"
 };
 const VAR = {
+  camVal:"ac71e29c-5d2d-4dee-b363-c48d8413221e", camImg:"e6186bf9-7fba-4b94-b057-b586503f4d6e",
   wx:"db6c5f28-514b-4a21-a6cd-bcae0ac9d552", snow:"9cab7519-d396-44eb-90a2-5d39494b7742", wxOld:"4128e108-e4da-47c4-b374-ddb9fc18cdef",
   hFix:"755c78e2-d9e4-40df-9848-7f529e4e8df7", hTeam:"f376742d-cdd2-40dd-be7a-0b2fac9233f1", hTable:"e57faf29-661f-4aec-b1f7-049c8b61caa9", hRound:"0edf3965-9276-406b-bd7d-7563ea222901",
   price:"a7d566ec-9dae-46d8-8325-a22eb4a18b1b", sl:"ab7c6af4-0cb2-49e5-9f52-60978a5cbb94", spot:"6f1c3f7d-e625-41d3-b64d-9a4c5577cd63", exr:"80ead3f4-2bd2-4bc4-ac4d-c6a400ba33be", cfg:"d0d666ef-c994-426b-838e-9a741c13ea4d", sweFix:"17a3f77f-b372-4212-aac3-b5918cadce2c", sweTeam:"0509ac9c-9939-414d-8d18-0497910e4f2d", priceLamp:"7e6a36c0-5182-4958-bedc-40f05db6584a", sweTab:"cb348425-c7b6-492f-a01f-b6807e654749", sweTabAlt:"c8a6408d-d018-4bba-b3a0-d4e29a2808cc", sweTabUrl:"388bc83b-49e7-4959-99ea-e88aaf223922", fav:"8805c016-c1d6-4d9c-8981-0137448971a2"
 };
+/* ski resorts whose webcams Homey can fetch, see the flow "App: Webbkameror skidorter" */
+const CAM_RESORTS = ["Kläppen","Romme Alpin","Kungsberget"], CAM_FLOW = "08329429-9d0a-4e9e-961d-2a128094ce5d";
 const FLOW = {wx:"c38fbeea-d4b4-4e66-a937-d9a187e26d26", snow:"23b8c4c1-b04d-4755-9f95-9e92cacf2d42", ham:"c60a1dcc-6fb1-49bf-bec7-1f3c9d70c873", swe:"3887a9be-89be-4d8f-8e8a-90f33fa164ce", sweTab:"cbd0676e-2c6d-4837-8cd1-b4c074b404e2", local:"c3a3d42c-4a2f-4298-8c6b-e1dd4283ded2"};
 const QUICK = [
   {label:"God morgon", act:"morning", ic:"sun", c:"var(--lamp)"},
@@ -586,9 +590,10 @@ async function boot(){
   mcp.watchTool(HOMEY, "list_variables", {}, ev => {
     if (ev.type === "data"){
       const p = parseLoose(ev.result.payload), arr = p && (Array.isArray(p) ? p : p.variables);
-      if (arr){ S.vars = {}; arr.forEach(v => S.vars[v.id] = v); S.varsAt = (ev.result.cache && ev.result.cache.storedAt) || Date.now(); delete S.err.vars; }
+      if (arr){ S.vars = {}; arr.forEach(v => S.vars[v.id] = v); S.varsAt = (ev.result.cache && ev.result.cache.storedAt) || Date.now(); delete S.err.vars;
+        const cj = getVarJSON(VAR.camImg); if (cj && cj.name){ S.camCache = S.camCache || {}; S.camCache[cj.name] = cj; if (S.camReq === cj.name && Date.parse(cj.at) >= S.camReqAt - 5000) S.camReq = null; } }
     } else S.err.vars = ev.error;
-    render();
+    render(); if (S.sheet && S.sheet.kind === "ski") renderSheet();
   }, {refetchInterval:300000, cache:{staleTime:240000, gcTime:3600000}});
   try { mcp.watchTool(GCAL, "list_events", {orderBy:"startTime", pageSize:12}, ev => {
     if (ev.type === "data"){ const p = parseLoose(ev.result.payload)||{}; S.cal = p.events || p.items || (Array.isArray(p)?p:[]); delete S.err.cal; } else S.err.cal = ev.error;
@@ -1433,10 +1438,33 @@ function skiSheet(r){
     '<div class="cons" style="margin-top:12px">'+kv("Nysnö idag", f0(r.p1)+" cm")+kv("Senaste 3 dygnen", f0(r.p3)+" cm")+kv("Senaste 7 dygnen", f0(r.p7)+" cm")+kv("Väntas 3 dygn", f0(r.f3)+" cm")+'</div>'+
     '<div class="lbl">Snöfall dag för dag</div>'+bars+'<div class="xs muted" style="margin-top:4px">Randiga staplar är prognos.</div>'+
     (fc.length?'<div class="lbl">Kommande dagar</div>'+fcHtml:'')+
-    '<div class="lbl">Webbkameror</div><a class="btn pri" style="width:100%;justify-content:center;text-decoration:none" href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener">'+ic("play",14)+'Sök webbkameror i '+esc(r.name)+'</a>'+
-    '<div class="xs muted" style="margin-top:6px">Öppnas i webbläsaren. Appen kan inte visa bilder från andra sajter direkt.</div>'+
+    (CAM_RESORTS.includes(r.name) ? camBlock(r.name) : '<div class="lbl">Webbkameror</div><a class="btn pri" style="width:100%;justify-content:center;text-decoration:none" href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener">'+ic("play",14)+'Sök webbkameror i '+esc(r.name)+'</a>'+
+    '<div class="xs muted" style="margin-top:6px">Öppnas i webbläsaren. Appen kan inte visa bilder från andra sajter direkt.</div>')+
     (r.ski?'<div class="btnrow" style="margin-top:14px"><button type="button" class="btn" data-act="skifav" data-n="'+esc(r.name)+'">'+(fav?"★ Ta bort från Mina skidorter":"☆ Lägg till i Mina skidorter")+'</button></div>':'')+
     '<div class="note">Modellberäknat av Open-Meteo för orten, inte skidortens egen rapport.</div>');
+}
+/* webcam stills fetched by Homey on request; images arrive as data: URLs in a Homey variable */
+function camBlock(name){
+  const c = (S.camCache||{})[name], busy = S.camReq === name && Date.now() - S.camReqAt < 60000;
+  const tm = s => { const d = new Date(s); return isNaN(d) ? "" : new Intl.DateTimeFormat("sv-SE",{hour:"2-digit",minute:"2-digit",timeZone:TZ}).format(d); };
+  const cams = c && Array.isArray(c.cams) ? c.cams.filter(x => x && typeof x.img === "string" && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(x.img)) : [];
+  let h = '<div class="lbl row" style="justify-content:space-between"><span>Webbkameror</span>'+(c?'<span class="xs muted" style="text-transform:none;letter-spacing:0">hämtade '+tm(c.at)+'</span>':'')+'</div>';
+  if (cams.length) h += '<div class="camrow" tabindex="0" aria-label="Webbkameror i '+esc(name)+'">'+cams.map(x => '<figure><img src="'+x.img+'" alt="Webbkamera '+esc(x.n)+'" loading="lazy"><figcaption><b>'+esc(x.n)+'</b>'+(x.taken?' · bild från '+tm(x.taken):'')+'</figcaption></figure>').join("")+'</div>'+(cams.length>1?'<div class="xs muted" style="margin-top:4px">Svep för fler kameror.</div>':'');
+  else if (busy) h += '<div class="camwait">'+skel(1)+'<div class="xs muted" style="margin-top:6px">Homey hämtar bilderna, det tar några sekunder.</div></div>';
+  else if (c && c.error) h += '<div class="muted small">'+esc(c.error)+'</div>';
+  else if (c) h += '<div class="muted small">Inga aktuella bilder just nu. Kamerorna kan vara avstängda.</div>';
+  h += '<div class="btnrow" style="margin-top:10px"><button type="button" class="btn'+(busy?" busy":"")+'" data-act="camfetch" data-n="'+esc(name)+'">'+ic("refresh",14)+(cams.length?"Hämta nya bilder":"Hämta bilder")+'</button></div>';
+  return h;
+}
+async function camFetch(name){
+  if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
+  S.camReq = name; S.camReqAt = Date.now(); renderSheet();
+  try {
+    await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.camVal, value:name});
+    await S.mcp.callTool(HOMEY, "start_flow", {flowId:CAM_FLOW, flowType:"advanced"});
+    [7000, 14000, 25000].forEach(ms => invalidate("list_variables", ms));
+    setTimeout(() => { if (S.camReq === name) { S.camReq = null; if (S.sheet) renderSheet(); } }, 60000);
+  } catch(e){ S.camReq = null; toast(errText(e)); renderSheet(); }
 }
 function snowCards(){
   const s = snowData(), src = 'Modellberäknat av Open-Meteo för 45 platser i Sverige'+(s&&s.at?', senast '+esc(String(s.at).slice(11,16)):'')+'. Skidorternas egna rapporter kan skilja sig.';
@@ -1709,7 +1737,8 @@ document.addEventListener("click", e => {
   else if (a === "consreset"){ const k = b.dataset.k; /* two taps so a stray tap does not reset the counter */
     if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
     else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
-  else if (a === "skisheet"){ S.sheet = {kind:"ski", name:b.dataset.n}; renderSheet(); }
+  else if (a === "skisheet"){ const n = b.dataset.n; S.sheet = {kind:"ski", name:n}; renderSheet(); const c = (S.camCache||{})[n]; if (CAM_RESORTS.includes(n) && (!c || Date.now() - Date.parse(c.at) > 15*60000)) camFetch(n); }
+  else if (a === "camfetch"){ camFetch(b.dataset.n); }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
   else if (a === "msheet"){ const k = b.dataset.k; S.sheet = {id:k==="mower"?DEV.mower:DEV.zaptec, kind:k}; renderSheet(); }
   else if (a === "lmode"){ const sid = S.sheet.id; setCaps({[sid]:{onoff:true, light_mode:b.dataset.v === "color" ? "color" : "temperature"}}); }
