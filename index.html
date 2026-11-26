@@ -792,7 +792,7 @@ const SCENES = [
   {id:"bajen", label:"Bajen", sw:"repeating-linear-gradient(90deg,#14a35b 0 10px,#fff 10px 20px)", desc:"Grönt och vitt"},
   {id:"sverige", label:"Sverige", sw:"repeating-linear-gradient(90deg,#006aa7 0 10px,#fecc02 10px 20px)", desc:"Blått och gult"}
 ];
-/* the user's Homey flows that colour the short kitchen LED strip by electricity price all check this variable */
+/* the user's Homey flows that colour Sonoslampa Kök by electricity price all check this variable */
 const PRICE_FLOWS = ["0f7f2979-e3fd-4eae-a129-f68c146ea1a0","c1aad188-4189-408f-ace9-86d8f80c813e","d052c7f9-c754-4a77-bf12-3d3d7e14177b"];
 function priceLampOn(){ if (S.priceLampLocal != null) return S.priceLampLocal; const v = (S.vars[VAR.priceLamp]||{}).value; return v == null ? true : v === true || v === "true"; }
 async function setPriceLamp(on, btn, quiet){
@@ -801,7 +801,7 @@ async function setPriceLamp(on, btn, quiet){
   try {
     await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.priceLamp, value:on});
     if (on) for (const f of PRICE_FLOWS){ try { await S.mcp.callTool(HOMEY, "start_flow", {flowId:f, flowType:"standard"}); } catch(e){} }
-    if (!quiet) toast(on ? "Köks-LED visar elpriset igen" : "Elprisfärgen är avstängd"); invalidate("list_devices", 1500);
+    if (!quiet) toast(on ? "Sonoslampan visar elpriset igen" : "Elprisfärgen är avstängd"); invalidate("list_devices", 1500);
   } catch(e){ S.priceLampLocal = null; toast(errText(e)); render(); }
 }
 /* fixed colours in the Sverige scene: Överskåp yellow, the short kitchen LED strip blue */
@@ -857,7 +857,7 @@ function viewLjus(){
   const head = card({}, '<div class="row"><div class="grow"><div class="mid num">'+onN+' av '+L.length+' tända</div><div class="small muted">Tryck på en lampa för att tända eller släcka. Färg och ton öppnar fler val.</div></div><button type="button" class="btn danger" data-act="alloff">'+ic("power",16)+'Släck allt</button></div>'+
     '<div class="lbl">Scener</div><div class="swatches">'+SCENES.map(s => '<button type="button" class="swatch'+(cfg().mode===s.id?" on":"")+'" data-act="scene" data-id="'+s.id+'" title="'+esc(s.desc)+'"'+(MODES.includes(s.id)?' aria-pressed="'+(cfg().mode===s.id)+'"':'')+'><i style="background:'+s.sw+'"></i>'+s.label+(cfg().mode===s.id?" · på":"")+'</button>').join("")+
     MOODS.map(m => '<button type="button" class="swatch" data-act="mood" data-id="'+m.id+'"><i style="background:linear-gradient(135deg,#34406b,#f2b632)"></i>'+esc(m.label.split(" ")[0])+'</button>').join("")+'</div>'+
-    '<div class="row" style="margin-top:16px;padding:12px;border-radius:13px;background:rgba(36,49,96,.45)"><span class="grow"><b>Elpriset på köks-LED</b><div class="xs muted">'+(priceLampOn()?"Led-list kök kort blir grön, gul eller röd efter elpriset.":cfg().mode?"Pausat så länge "+((SCENES.find(s => s.id === cfg().mode)||{}).label||"")+"-läget är på.":"Avstängt. Listen behåller färgen du väljer.")+'</div></span><button type="button" class="sw" role="switch" aria-checked="'+priceLampOn()+'" data-act="pricelamp" aria-label="Visa elpriset på Led-list kök kort"></button></div>'+
+    '<div class="row" style="margin-top:16px;padding:12px;border-radius:13px;background:rgba(36,49,96,.45)"><span class="grow"><b>Elpriset på Sonoslampan</b><div class="xs muted">'+(priceLampOn()?"Sonoslampa Kök blir grön, gul eller röd efter elpriset.":cfg().mode?"Pausat så länge "+((SCENES.find(s => s.id === cfg().mode)||{}).label||"")+"-läget är på.":"Avstängt. Lampan behåller färgen du väljer.")+'</div></span><button type="button" class="sw" role="switch" aria-checked="'+priceLampOn()+'" data-act="pricelamp" aria-label="Visa elpriset på Led-list kök kort"></button></div>'+
     '<div class="lbl row">Egna scener<span class="grow"></span>'+(cfg().scenes.length?'<button type="button" class="more" data-act="sceneedit" style="text-transform:none;letter-spacing:0">'+(S.sceneEdit?"Klar":"Ändra")+'</button>':'')+'</div>'+
     (cfg().scenes.length?'<div class="swatches" style="margin-top:0">'+cfg().scenes.map((s,i) => { const cols = Object.keys(s.m).map(id => { const c = s.m[id]; return !c.onoff ? null : c.light_mode==="color" ? hsCss(c.light_hue,c.light_saturation) : c.light_temperature!=null ? tempCss(c.light_temperature) : "#ffd35e"; }).filter(Boolean).slice(0,4); return '<button type="button" class="swatch" data-act="'+(S.sceneEdit?"scenedel":"myscene")+'" data-i="'+i+'"><i style="background:'+(cols.length>1?"conic-gradient("+cols.concat(cols[0]).join(",")+")":cols[0]||"var(--surface-3)")+';'+(S.sceneEdit?"box-shadow:inset 0 0 0 2px var(--bad)":"")+'">'+(S.sceneEdit?'<span style="display:grid;place-items:center;height:100%;color:#fff;font-weight:800;font-style:normal;background:rgba(0,0,0,.45);border-radius:50%">×</span>':'')+'</i>'+esc(s.n)+'</button>'; }).join("")+'</div>':'<div class="small muted">Ställ in lamporna som du vill ha dem och spara läget här.</div>')+
     '<form class="row" data-form="scene" style="margin-top:10px"><input class="inp grow" id="sceneName" type="text" maxlength="18" placeholder="Namn, till exempel Fredagsmys" value="'+esc(S.sceneName)+'" aria-label="Namn på scenen"><button type="submit" class="btn pri">Spara</button></form>');
