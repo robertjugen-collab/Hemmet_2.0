@@ -214,8 +214,9 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 .hours::-webkit-scrollbar{display:none}
 .hr{flex:none;width:58px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;border-radius:13px;background:var(--surface-2);font-size:12.5px}
 .hr b{font-size:15px}.hr .pp{color:var(--snow);font-size:11.5px;min-height:15px;font-weight:600}
-.day{display:grid;grid-template-columns:52px 28px 1fr 34px 76px 34px;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.day{display:grid;grid-template-columns:46px 26px 72px 32px minmax(30px,1fr) 32px;gap:6px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
 .day:first-child{border-top:0}
+button.day{width:100%;margin:0;background:none;border:0;border-top:1px solid var(--line);border-radius:0;color:inherit;font:inherit;font-size:14px;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}button.day:first-child{border-top:0}button.day:active{background:rgba(255,255,255,.04)}button.day:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .range{height:7px;border-radius:4px;background:var(--surface-3);position:relative}
 .range i{position:absolute;top:0;bottom:0;border-radius:4px;background:linear-gradient(90deg,#5aa9ff,#ffc04d)}
 .rank{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
@@ -1408,7 +1409,7 @@ function daysCard(){
   return card({title:"Kommande dagar", ic:"cal", c:"var(--info)"}, idx.map(i => {
     const name = d.time[i]===today ? "Idag" : wdFmt.format(new Date(d.time[i]+"T12:00:00Z")).replace(".",""), a = d.temperature_2m_min[i], b = d.temperature_2m_max[i];
     const sn = d.snowfall_sum && d.snowfall_sum[i] >= .5, pr = d.precipitation_sum ? d.precipitation_sum[i] : 0;
-    return '<button type="button" class="day rowbtn" style="display:grid" data-act="wxsheet" data-k="day" data-i="'+i+'" title="'+esc(WMO[d.weather_code[i]]||"")+'"><b style="text-transform:capitalize">'+name+'</b><span style="color:var(--info)">'+ic(wmoIcon(d.weather_code[i]),22)+'</span><span class="xs num" style="color:var(--snow);font-weight:600">'+(sn?f0(d.snowfall_sum[i])+" cm snö":pr>=.1?f1(pr)+" mm":"")+'</span><span class="muted num" style="text-align:right">'+f0(a)+'°</span><span class="range"><i style="left:'+((a-lo)/span*100)+'%;right:'+((hi-b)/span*100)+'%"></i></span><b class="num">'+f0(b)+'°</b></button>';
+    return '<button type="button" class="day" data-act="wxsheet" data-k="day" data-i="'+i+'" title="'+esc(WMO[d.weather_code[i]]||"")+'"><b style="text-transform:capitalize">'+name+'</b><span style="color:var(--info)">'+ic(wmoIcon(d.weather_code[i]),22)+'</span><span class="xs num" style="color:var(--snow);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(sn?f0(d.snowfall_sum[i])+" cm snö":pr>=.1?f1(pr)+" mm":"")+'</span><span class="muted num" style="text-align:right">'+f0(a)+'°</span><span class="range"><i style="left:'+((a-lo)/span*100)+'%;right:'+((hi-b)/span*100)+'%"></i></span><b class="num">'+f0(b)+'°</b></button>';
   }).join("")+'<div class="note">Tryck på en dag för mer.</div>');
 }
 /* ---------- weather pop-ups ---------- */
