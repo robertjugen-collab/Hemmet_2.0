@@ -367,6 +367,7 @@ const DEV = {
   smhi:"5335d859-42a1-404c-9973-fa740bfc5e63", ute:"8f82ef0f-1c3e-4d52-b5a6-042189925bec"
 };
 const VAR = {
+  pist:"174e3263-2aab-4d48-9fbc-31fdbfd714c9",
   camVal:"ac71e29c-5d2d-4dee-b363-c48d8413221e", camImg:"e6186bf9-7fba-4b94-b057-b586503f4d6e",
   wx:"db6c5f28-514b-4a21-a6cd-bcae0ac9d552", snow:"9cab7519-d396-44eb-90a2-5d39494b7742", wxOld:"4128e108-e4da-47c4-b374-ddb9fc18cdef",
   hFix:"755c78e2-d9e4-40df-9848-7f529e4e8df7", hTeam:"f376742d-cdd2-40dd-be7a-0b2fac9233f1", hTable:"e57faf29-661f-4aec-b1f7-049c8b61caa9", hRound:"0edf3965-9276-406b-bd7d-7563ea222901",
@@ -374,6 +375,8 @@ const VAR = {
 };
 /* ski resorts whose webcams Homey can fetch, see the flow "App: Webbkameror skidorter" */
 const CAM_RESORTS = ["Kläppen","Romme Alpin","Kungsberget"], CAM_FLOW = "08329429-9d0a-4e9e-961d-2a128094ce5d";
+/* our place names -> OnTheSnow slugs for the piste snow reports (flow "App: Pistsnö skidorter") */
+const PIST_SLUG = {"Riksgränsen":"riksgransen","Björkliden":"bjoerkliden","Dundret":"dundret","Kåbdalis":"kaebdalis","Hemavan":"hemavan","Kittelfjäll":"kittelfjall","Åre":"are","Storlien":"storlien","Bydalsfjällen":"bydalsfjallen","Ramundberget":"ramundberget","Funäsdalen":"funasdalsberget","Tänndalen":"tanndalen-hamrafjallet","Vemdalsskalet":"vemdalen","Klövsjö":"vemdalen","Lofsdalen":"lofsdalen","Idre Fjäll":"idre-fjall","Järvsö":"jarvsobacken","Stöten":"stoeten-in-salen","Lindvallen":"lindvallen-hoegfjallet","Kläppen":"klappen-ski-resort","Orsa Grönklitt":"orsa-groenklitt","Kungsberget":"kungsberget","Branäs":"branas","Romme Alpin":"romme-alpin","Säfsen":"safsen","Isaberg":"isaberg"};
 const FLOW = {wx:"c38fbeea-d4b4-4e66-a937-d9a187e26d26", snow:"23b8c4c1-b04d-4755-9f95-9e92cacf2d42", ham:"c60a1dcc-6fb1-49bf-bec7-1f3c9d70c873", swe:"3887a9be-89be-4d8f-8e8a-90f33fa164ce", sweTab:"cbd0676e-2c6d-4837-8cd1-b4c074b404e2", local:"c3a3d42c-4a2f-4298-8c6b-e1dd4283ded2"};
 const QUICK = [
   {label:"God morgon", act:"morning", ic:"sun", c:"var(--lamp)"},
@@ -1413,14 +1416,25 @@ function snowData(){
     const pl = PLACES[i]; if (!pl || !p || !p.daily || !p.daily.time) return null;
     const t = p.daily.time, sf = p.daily.snowfall_sum || [], ti = t.indexOf(today) >= 0 ? t.indexOf(today) : Math.min(7, t.length-1);
     const sum = (a, b) => { let s = 0; for (let k = Math.max(0,a); k <= Math.min(b, sf.length-1); k++) s += sf[k]||0; return s; };
-    return {raw:p, ti, name:pl[0], region:pl[1], ski:!!pl[2], home:i===HOME_IDX, depth:p.current && p.current.snow_depth != null ? p.current.snow_depth*100 : null, temp:p.current ? p.current.temperature_2m : null, elev:p.elevation, p1:sum(ti,ti), p3:sum(ti-2,ti), p7:sum(ti-6,ti), f3:sum(ti+1,ti+3)};
+    return {pist:pl[2] ? pistInfo(pl[0]) : null, raw:p, ti, name:pl[0], region:pl[1], ski:!!pl[2], home:i===HOME_IDX, depth:p.current && p.current.snow_depth != null ? p.current.snow_depth*100 : null, temp:p.current ? p.current.temperature_2m : null, elev:p.elevation, p1:sum(ti,ti), p3:sum(ti-2,ti), p7:sum(ti-6,ti), f3:sum(ti+1,ti+3)};
   }).filter(Boolean);
   return rows.length ? {rows, at:j[0] && j[0].current && j[0].current.time} : null;
 }
+/* the resort's own report of snow on the pistes (incl. man-made), only when updated in the last 10 days */
+function pistInfo(name){
+  const j = getVarJSON(VAR.pist), slug = PIST_SLUG[name]; if (!j || !Array.isArray(j.resorts) || !slug) return null;
+  const r = j.resorts.find(x => x && x.slug === slug); if (!r) return null;
+  const num = v => typeof v === "number" && isFinite(v) ? v : null, upd = Date.parse(r.upd||""), fresh = upd && Date.now() - upd < 10*864e5;
+  const base = num(r.base), mid = num(r.mid), top = num(r.top), vals = [base, mid, top].filter(v => v != null);
+  const open = r.open === 1 || r.open === 4 || (num(r.lo) > 0);
+  return {title:String(r.t||name), fresh:!!fresh, open, base, mid, top, val: fresh && vals.length ? Math.max(...vals) : null,
+    lo:num(r.lo), lt:num(r.lt), ro:num(r.ro), rt:num(r.rt), od:typeof r.od === "string" ? r.od : null, upd: upd || null, n72:num(r.n72)};
+}
+const pistShort = pi => !pi ? "" : pi.val != null ? f0(pi.val)+" cm" : pi.od && !pi.open && Date.parse(pi.od) > Date.now() ? "öppnar "+new Intl.DateTimeFormat("sv-SE",{day:"numeric",month:"short",timeZone:TZ}).format(new Date(pi.od+"T12:00:00")) : "ingen rapport";
 function rankList(rows, key, unit, n, sub){
-  const top = rows.slice().sort((a,b) => b[key]-a[key]), max = Math.max(1, top[0] ? top[0][key] : 1), show = top.slice(0, n), home = rows.find(r => r.home);
+  const top = rows.slice().sort((a,b) => (b[key]??-1)-(a[key]??-1)), max = Math.max(1, top[0] ? top[0][key]||0 : 1), show = top.slice(0, n), home = rows.find(r => r.home);
   const fv = cfg().ski, star = r => sub && r.ski ? '<button type="button" class="starb'+(fv.includes(r.name)?" on":"")+'" data-act="skifav" data-n="'+esc(r.name)+'" aria-label="'+(fv.includes(r.name)?"Ta bort":"Lägg till")+' '+esc(r.name)+' som favorit" aria-pressed="'+fv.includes(r.name)+'">'+(fv.includes(r.name)?"★":"☆")+'</button>' : '';
-  const line = (r, i) => '<div class="rank'+(r.home?" me":"")+'"><span class="rn num">'+(r.home&&i>=n?"":i+1)+'</span><button type="button" class="grow rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" aria-label="Mer om '+esc(r.name)+'"><div class="ellip"><span style="font-weight:600">'+esc(r.name)+'</span>'+(r.ski?'<span class="tag">skidort</span>':'')+'</div><div class="xs muted ellip">'+esc(sub?sub(r):r.region)+'</div></button><span class="row" style="gap:6px"><b class="num">'+f0(r[key])+' '+unit+'</b>'+star(r)+'</span><div class="rb"><i style="width:'+clamp(r[key]/max*100,0,100)+'%"></i></div></div>';
+  const line = (r, i) => '<div class="rank'+(r.home?" me":"")+'"><span class="rn num">'+(r.home&&i>=n?"":i+1)+'</span><button type="button" class="grow rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" aria-label="Mer om '+esc(r.name)+'"><div class="ellip"><span style="font-weight:600">'+esc(r.name)+'</span>'+(r.ski?'<span class="tag">skidort</span>':'')+'</div><div class="xs muted ellip">'+esc(sub?sub(r):r.region)+'</div></button><span class="row" style="gap:6px"><span style="text-align:right"><b class="num">'+(r[key]==null?"–":f0(r[key]))+' '+unit+'</b>'+(sub && r.ski ? '<div class="xs muted num" style="white-space:nowrap">'+(key==="pistv" ? "natur "+(r.depth!=null?f0(r.depth)+" cm":"–") : "pist "+esc(pistShort(r.pist)||"–"))+'</div>' : '')+'</span>'+star(r)+'</span><div class="rb"><i style="width:'+clamp((r[key]||0)/max*100,0,100)+'%"></i></div></div>';
   return show.map(line).join("") + (home && !show.includes(home) ? line(home, top.indexOf(home)) : "");
 }
 /* pop-up for one place in the snow lists: weather now, snowfall day by day and the next days */
@@ -1434,8 +1448,9 @@ function skiSheet(r){
   const fcHtml = fc.map(k => '<div class="li"><b style="width:104px;white-space:nowrap;text-transform:capitalize">'+esc(dShort.format(new Date(t[k]+"T12:00:00")))+'</b><span style="color:var(--info)">'+ic(wmoIcon((d.weather_code||[])[k]),20)+'</span><span class="grow small muted ellip" style="margin-left:8px">'+esc(WMO[(d.weather_code||[])[k]]||"")+'</span><span class="num small" style="white-space:nowrap">'+((d.temperature_2m_max||[])[k]!=null?f0(d.temperature_2m_max[k])+"° / "+f0(d.temperature_2m_min[k])+"°":"")+'</span><b class="num" style="width:58px;text-align:right">'+f0((d.snowfall_sum||[])[k]||0)+' cm</b></div>').join("");
   const q = encodeURIComponent(r.name+" webbkamera");
   return sheetFrame(r.name, r.region+(p.elevation!=null?" · "+f0(p.elevation)+" m ö.h.":""), cu.weather_code!=null?'<span class="pill">'+esc(WMO[cu.weather_code]||"")+'</span>':'',
-    '<div class="row" style="align-items:flex-end;margin-top:14px"><div class="grow"><span class="big num">'+(r.depth!=null?f0(r.depth):"–")+'</span><span class="unit">cm snödjup</span></div><div style="text-align:right"><b class="num">'+(r.temp!=null?f1(r.temp)+"°":"–")+'</b><div class="xs muted">'+(cu.wind_speed_10m!=null?"vind "+f0(cu.wind_speed_10m)+" m/s":"just nu")+'</div></div></div>'+
-    '<div class="cons" style="margin-top:12px">'+kv("Nysnö idag", f0(r.p1)+" cm")+kv("Senaste 3 dygnen", f0(r.p3)+" cm")+kv("Senaste 7 dygnen", f0(r.p7)+" cm")+kv("Väntas 3 dygn", f0(r.f3)+" cm")+'</div>'+
+    '<div class="row" style="align-items:flex-end;margin-top:14px"><div class="grow"><span class="big num">'+(r.depth!=null?f0(r.depth):"–")+'</span><span class="unit">cm natursnö</span></div><div style="text-align:right"><b class="num">'+(r.temp!=null?f1(r.temp)+"°":"–")+'</b><div class="xs muted">'+(cu.wind_speed_10m!=null?"vind "+f0(cu.wind_speed_10m)+" m/s":"just nu")+'</div></div></div>'+
+    pistBlock(r)+
+    '<div class="lbl">Nysnö enligt vädermodellen</div><div class="cons">'+kv("Nysnö idag", f0(r.p1)+" cm")+kv("Senaste 3 dygnen", f0(r.p3)+" cm")+kv("Senaste 7 dygnen", f0(r.p7)+" cm")+kv("Väntas 3 dygn", f0(r.f3)+" cm")+'</div>'+
     '<div class="lbl">Snöfall dag för dag</div>'+bars+'<div class="xs muted" style="margin-top:4px">Randiga staplar är prognos.</div>'+
     (fc.length?'<div class="lbl">Kommande dagar</div>'+fcHtml:'')+
     (CAM_RESORTS.includes(r.name) ? camBlock(r.name) : '<div class="lbl">Webbkameror</div><a class="btn pri" style="width:100%;justify-content:center;text-decoration:none" href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener">'+ic("play",14)+'Sök webbkameror i '+esc(r.name)+'</a>'+
@@ -1444,6 +1459,15 @@ function skiSheet(r){
     '<div class="note">Modellberäknat av Open-Meteo för orten, inte skidortens egen rapport.</div>');
 }
 /* webcam stills fetched by Homey on request; images arrive as data: URLs in a Homey variable */
+function pistBlock(r){
+  if (!r.ski) return "";
+  const pi = r.pist; if (!pi) return '<div class="lbl">I pisten</div><div class="muted small">'+(PIST_SLUG[r.name] ? 'Pistrapporten hämtas av Homey var tredje timme.' : 'Orten finns inte med i pistrapporterna.')+'</div>';
+  const d = v => v != null ? f0(v)+" cm" : "–", dt = ms => new Intl.DateTimeFormat("sv-SE",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:TZ}).format(new Date(ms));
+  let h = '<div class="lbl row" style="justify-content:space-between"><span>I pisten, skidortens rapport</span>'+(pi.upd?'<span class="xs muted" style="text-transform:none;letter-spacing:0">'+dt(pi.upd)+'</span>':'')+'</div>';
+  if (!pi.fresh) return h + '<div class="muted small">'+(pi.od && Date.parse(pi.od) > Date.now() ? 'Stängt. Säsongen börjar '+esc(pistShort(pi).replace("öppnar ",""))+'.' : 'Ingen aktuell rapport från skidorten.')+'</div>';
+  h += '<div class="cons">'+kv("Dalen", d(pi.base))+kv("Toppen", d(pi.top))+(pi.mid!=null?kv("Mitten", d(pi.mid)):"")+kv("Liftar öppna", pi.lo!=null&&pi.lt?f0(pi.lo)+" av "+f0(pi.lt):"–")+(pi.rt?kv("Backar öppna", (pi.ro!=null?f0(pi.ro):"–")+" av "+f0(pi.rt)):"")+'</div>';
+  return h + '<div class="xs muted" style="margin-top:6px">Snödjup i backarna med konstsnö, enligt '+esc(pi.title)+' via OnTheSnow.</div>';
+}
 function camBlock(name){
   const c = (S.camCache||{})[name], busy = S.camReq === name && Date.now() - S.camReqAt < 60000;
   const tm = s => { const d = new Date(s); return isNaN(d) ? "" : new Intl.DateTimeFormat("sv-SE",{hour:"2-digit",minute:"2-digit",timeZone:TZ}).format(d); };
@@ -1476,12 +1500,16 @@ function snowCards(){
   const fall = card({title:"Mest nysnö i Sverige", ic:"snow", c:"var(--snow)"}, '<div class="seg" style="margin-bottom:10px">'+tabs.map(t => '<button type="button" data-act="snowtab" data-v="'+t[0]+'" aria-pressed="'+(key===t[0])+'">'+t[1]+'</button>').join("")+'</div>'+
     '<div class="xs muted" style="margin-bottom:4px">'+({p1:"Snöfall under dagens dygn",p3:"Snöfall de senaste tre dygnen, idag inräknat",p7:"Snöfall de senaste sju dygnen, idag inräknat",f3:"Väntat snöfall de kommande tre dygnen"})[key]+'</div>'+
     (any ? rankList(s.rows.filter(r => r[key] >= .5 || r.home), key, "cm", 10) : '<div class="muted" style="padding:12px 0">Ingen av platserna har fått någon snö att tala om under perioden.</div>')+'<div class="note">'+src+'</div>');
-  const ski = s.rows.filter(r => r.ski && r.depth != null);
+  const ski = s.rows.filter(r => r.ski && r.depth != null).map(r => Object.assign(r, {pistv: r.pist ? r.pist.val : null}));
+  const pm = S.depthMode === "pist", pj = getVarJSON(VAR.pist), anyPist = ski.some(r => r.pistv != null);
+  const depthSub = r => r.region+(r.temp!=null?" · "+f0(r.temp)+"°":"")+(r.p3>=1?" · +"+f0(r.p3)+" cm på 3 dygn":"");
   const depth = card({title:"Snödjup, skidorter", ic:"ski", c:"var(--snow)", right:'<button type="button" class="more" data-act="skiall">'+(S.skiAll?"Visa topp 10":"Visa alla "+ski.length)+'</button>'},
-    (ski.some(r => r.depth >= 1) ? rankList(ski, "depth", "cm", S.skiAll ? ski.length : 10, r => r.region+(r.temp!=null?" · "+f0(r.temp)+"°":"")+(r.p3>=1?" · +"+f0(r.p3)+" cm på 3 dygn":"")) : '<div class="muted" style="padding:12px 0">Modellen visar inget snötäcke på någon av skidorterna ännu.</div>')+
-    '<div class="note">Tryck på stjärnan för att lägga en ort bland dina favoriter. Snödjupet gäller terrängen runt orten enligt vädermodellen, inte pistens konstsnö.</div>');
+    '<div class="seg" style="margin-bottom:10px">'+[["nat","Natursnö"],["pist","I pisten"]].map(x => '<button type="button" data-act="depthmode" data-v="'+x[0]+'" aria-pressed="'+((pm?"pist":"nat")===x[0])+'">'+x[1]+'</button>').join("")+'</div>'+
+    (pm ? (anyPist ? rankList(ski.filter(r => r.pistv != null || S.skiAll), "pistv", "cm", S.skiAll ? ski.length : 10, depthSub) : '<div class="muted" style="padding:12px 0">'+(pj ? 'Ingen av skidorterna rapporterar snödjup i pisterna just nu. De flesta har inte öppnat för säsongen än.' : 'Pistrapporterna hämtas av Homey var tredje timme.')+'</div>')
+      : (ski.some(r => r.depth >= 1) ? rankList(ski, "depth", "cm", S.skiAll ? ski.length : 10, depthSub) : '<div class="muted" style="padding:12px 0">Modellen visar inget snötäcke på någon av skidorterna ännu.</div>'))+
+    '<div class="note">'+(pm ? 'I pisten är skidortens egen rapport av snödjupet i backarna, konstsnö inräknad, via OnTheSnow. Största värdet av dal, mitt och topp visas.' : 'Natursnö är snödjupet i terrängen runt orten enligt vädermodellen, utan konstsnö.')+' Tryck på en ort för mer, och på stjärnan för att spara den bland dina favoriter.</div>');
   const mine = s.rows.filter(r => cfg().ski.includes(r.name));
-  const favC = mine.length ? card({title:"Mina skidorter", ic:"ski", c:"var(--pink)"}, mine.map(r => '<div class="li" style="align-items:flex-start"><span class="grow" style="min-width:0"><button type="button" class="rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" style="font-weight:700">'+esc(r.name)+' <span class="muted">›</span></button><div class="xs muted">'+esc(r.region)+(r.temp!=null?" · "+f0(r.temp)+"° nu":"")+'</div></span><span style="text-align:right"><b class="mid num" style="font-size:20px">'+f0(r.depth)+' cm</b><div class="xs muted num">+'+f0(r.p3)+' cm på 3 dygn · '+f0(r.f3)+' cm väntas</div></span></div>').join("")) : "";
+  const favC = mine.length ? card({title:"Mina skidorter", ic:"ski", c:"var(--pink)"}, mine.map(r => '<div class="li" style="align-items:flex-start"><span class="grow" style="min-width:0"><button type="button" class="rowbtn" data-act="skisheet" data-n="'+esc(r.name)+'" style="font-weight:700">'+esc(r.name)+' <span class="muted">›</span></button><div class="xs muted">'+esc(r.region)+(r.temp!=null?" · "+f0(r.temp)+"° nu":"")+'</div></span><span style="text-align:right"><b class="mid num" style="font-size:20px">'+f0(r.depth)+' cm</b><div class="xs muted num">natursnö · pist '+esc(pistShort(r.pist)||"–")+'</div><div class="xs muted num">+'+f0(r.p3)+' cm på 3 dygn · '+f0(r.f3)+' cm väntas</div></span></div>').join("")) : "";
   return favC + fall + depth;
 }
 function viewVader(){ return '<h1 class="vt">Väder och snö</h1><div class="grid"><div class="stack">'+nowCard()+hoursCard()+'</div><div class="stack">'+daysCard()+'</div><div class="stack">'+snowCards()+'</div></div>'; }
@@ -1754,6 +1782,7 @@ document.addEventListener("click", e => {
   else if (a === "pricelamp"){ setPriceLamp(!priceLampOn(), b); }
   else if (a === "favtab"){ S.favTab = b.dataset.v; render(); }
   else if (a === "fav") playFav(id, b.dataset.label, b);
+  else if (a === "depthmode"){ S.depthMode = b.dataset.v; render(); }
   else if (a === "snowtab"){ S.snowTab = b.dataset.v; render(); }
   else if (a === "chargeh"){ S.chargeH = Number(b.dataset.v); render(); }
   else if (a === "histres"){ S.histRes = b.dataset.v; render(); }
