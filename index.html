@@ -598,7 +598,7 @@ async function boot(){
       if (arr){ S.vars = {}; arr.forEach(v => S.vars[v.id] = v); S.varsAt = (ev.result.cache && ev.result.cache.storedAt) || Date.now(); delete S.err.vars;
         const cj = getVarJSON(VAR.camImg); if (cj && cj.name){ S.camCache = S.camCache || {}; S.camCache[cj.name] = cj; if (S.camReq === cj.name && Date.parse(cj.at) >= S.camReqAt - 5000) S.camReq = null; } }
     } else S.err.vars = ev.error;
-    render(); if (S.sheet && S.sheet.kind === "ski") renderSheet();
+    render(); if (S.sheet && /^(ski|bus|wx)$/.test(S.sheet.kind)) renderSheet();
   }, {refetchInterval:300000, cache:{staleTime:240000, gcTime:3600000}});
   try { mcp.watchTool(GCAL, "list_events", {orderBy:"startTime", pageSize:12}, ev => {
     if (ev.type === "data"){ const p = parseLoose(ev.result.payload)||{}; S.cal = p.events || p.items || (Array.isArray(p)?p:[]); delete S.err.cal; } else S.err.cal = ev.error;
@@ -700,7 +700,28 @@ function powerHistCard(){
 /* ---------- bus 677 at Tullen (SL realtime, fetched by Homey) ---------- */
 function departures(){
   const j = getVarJSON(VAR.sl); if (!j || !Array.isArray(j.departures)) return null; const now = Date.now();
-  return j.departures.map(d => ({t:Date.parse(d.expected||d.scheduled), sched:Date.parse(d.scheduled), dest:d.destination, state:d.state})).filter(d => !isNaN(d.t) && d.t > now-45000).sort((a,b) => a.t-b.t);
+  return j.departures.map(d => ({t:Date.parse(d.expected||d.scheduled), sched:Date.parse(d.scheduled), dest:d.destination, state:d.state, dir:d.direction_code != null ? d.direction_code : /uppsala/i.test(d.destination||"") ? 1 : 2, pred:d.journey&&d.journey.prediction_state, real:!!d.expected,
+    dev:(Array.isArray(d.deviations)?d.deviations:[]).map(x => x && (x.message||x.text)).filter(Boolean)})).filter(d => !isNaN(d.t) && d.t > now-45000).sort((a,b) => a.t-b.t);
+}
+/* pop-up with every departure SL reports for the next 12 hours, per direction */
+function busSheet(){
+  const all = departures() || [], j = getVarJSON(VAR.sl) || {}, dirs = [[2,"Norrtälje"],[1,"Uppsala"]];
+  if (S.busDir == null) S.busDir = all.length ? all[0].dir : 2;
+  const list = all.filter(x => x.dir === S.busDir), today = new Date().toDateString();
+  const inMin = t => { const m = Math.floor((t-Date.now())/60000); return m <= 0 ? "nu" : m < 60 ? "om "+m+" min" : "om "+Math.floor(m/60)+" h "+(m%60)+" min"; };
+  const left = list.filter(x => new Date(x.t).toDateString() === today && x.state !== "CANCELLED"), last = left[left.length-1];
+  const stopDev = (Array.isArray(j.stop_deviations)?j.stop_deviations:[]).map(x => x && (x.message||x.text)).filter(Boolean);
+  const row = x => { const late = Math.round((x.t-x.sched)/60000), canc = x.state === "CANCELLED", tom = new Date(x.t).toDateString() !== today;
+    return '<div class="li" style="align-items:flex-start'+(canc?';color:var(--bad)':'')+'"><span style="width:62px"><b class="num" style="font-size:17px'+(canc?';text-decoration:line-through':'')+'">'+tFmt.format(x.t)+'</b>'+(late!==0&&!canc?'<div class="xs muted num" style="text-decoration:line-through">'+tFmt.format(x.sched)+'</div>':'')+'</span>'+
+      '<span class="grow" style="min-width:0"><div class="ellip">mot '+esc(x.dest)+(tom?' <span class="tag">imorgon</span>':'')+'</div><div class="xs muted">'+(canc?'Inställd':late>0?late+' min sen':late<0?(-late)+' min tidig':x.real?'I tid':'Enligt tidtabell')+(x.real&&!canc?' · realtid':'')+'</div>'+x.dev.map(m => '<div class="xs" style="color:var(--warn);margin-top:2px">'+esc(m)+'</div>').join("")+'</span>'+
+      '<span class="num small muted" style="white-space:nowrap">'+(canc?"":inMin(x.t))+'</span></div>'; };
+  return sheetFrame("Buss 677 vid Tullen", "Avgångar de närmaste 12 timmarna", '<span class="pill info num">677</span>',
+    '<div class="seg" style="margin-top:14px">'+dirs.map(d => '<button type="button" data-act="busdir" data-v="'+d[0]+'" aria-pressed="'+(S.busDir===d[0])+'">Mot '+d[1]+' <span class="num" style="opacity:.6">'+all.filter(x => x.dir===d[0]).length+'</span></button>').join("")+'</div>'+
+    (stopDev.length?'<div class="note" style="color:var(--warn)">'+stopDev.map(esc).join("<br>")+'</div>':'')+
+    '<div class="cons" style="margin-top:12px">'+kv("Nästa", list[0]?tFmt.format(list[0].t)+" ("+inMin(list[0].t)+")":"–")+kv("Kvar idag", left.length+" avgångar")+kv("Senast idag i listan", last?tFmt.format(last.t):"–")+kv("Försenade", list.filter(x => x.t-x.sched >= 180000).length+" av "+list.length)+'</div>'+
+    '<div class="lbl">Avgångar</div>'+(list.length?'<div class="list">'+list.map(row).join("")+'</div>':'<div class="muted">Inga avgångar åt det hållet de närmaste 12 timmarna.</div>')+
+    '<div class="btnrow" style="margin-top:14px"><a class="btn" style="text-decoration:none;justify-content:center" href="https://sl.se/" target="_blank" rel="noopener">Öppna SL:s reseplanerare</a></div>'+
+    '<div class="note">Realtid från SL, hämtas av Homey varje minut. SL visar bara 12 timmar framåt, så senare avgångar under dagen kan saknas i listan.</div>');
 }
 function busCard(){
   const d = departures(), inMin = t => { const m = Math.floor((t-Date.now())/60000); return m <= 0 ? "Nu" : m < 60 ? m+" min" : Math.floor(m/60)+" h "+(m%60)+" min"; };
@@ -710,7 +731,8 @@ function busCard(){
   else { const n = d[0], late = Math.round((n.t-n.sched)/60000);
     b = '<div class="row" style="align-items:flex-end"><div class="grow"><span class="big num" style="font-size:36px;white-space:nowrap">'+inMin(n.t)+'</span></div><div style="text-align:right"><b>mot '+esc(n.dest)+'</b><div class="small muted num">'+tFmt.format(n.t)+(late>0?" · "+late+" min sen":"")+(n.state==="CANCELLED"?' · <span style="color:var(--bad)">inställd</span>':"")+'</div></div></div>'+
       '<div class="list" style="margin-top:12px">'+d.slice(1,4).map(x => '<div class="li"'+(x.state==="CANCELLED"?' style="text-decoration:line-through;color:var(--bad)"':'')+'><b class="num" style="width:52px">'+tFmt.format(x.t)+'</b><span class="grow ellip">mot '+esc(x.dest)+'</span><span class="num muted">'+inMin(x.t)+'</span></div>').join("")+'</div>'; }
-  return card({title:"Bussen vid Tullen", ic:"bus", c:"var(--info)", right:'<span class="pill info num">677</span>'}, b);
+  return card({title:"Bussen vid Tullen", ic:"bus", c:"var(--info)", right:'<span class="row" style="gap:8px"><span class="pill info num">677</span><button type="button" class="more" data-act="bussheet">Mer ›</button></span>'},
+    d && d.length ? '<button type="button" class="rowbtn" style="display:block;width:100%" data-act="bussheet" aria-label="Fler avgångar">'+b+'</button>' : b);
 }
 /* ---------- calendar + matches ---------- */
 function agendaCard(){
@@ -736,6 +758,27 @@ function spot(){
   try { const x = JSON.parse(xr); if (x && x.rates && x.rates.SEK) rate = x.rates.SEK; } catch(e){}
   try { const j = JSON.parse(raw); if (Array.isArray(j) && j.length){ const m = {}; j.forEach(e => { const t = Date.parse(e.DateTime); if (isNaN(t)) return; const h = Math.floor(t/3600000)*3600000; (m[h] = m[h] || []).push(e.PriceNoTax*rate); }); hrs = Object.keys(m).map(Number).sort((a,b)=>a-b).map(h => ({t:h, v:m[h].reduce((s,x)=>s+x,0)/m[h].length})); } } catch(e){}
   spotMemo = {k, d:hrs}; return hrs;
+}
+/* home page: hourly spot price today and tomorrow */
+function priceChartCard(){
+  const all = spot(); if (!all) return card({title:"Elpriset", ic:"bolt", c:"var(--warn)"}, '<div class="muted">'+(S.noMcp?"Elpriserna visas när appen är ansluten till Homey.":"Väntar på spotpriser från Homey.")+'</div>');
+  const dk = t => new Intl.DateTimeFormat("sv-SE",{timeZone:TZ}).format(t), dToday = dk(Date.now()), dTom = dk(Date.now()+864e5);
+  const h = all.filter(x => dk(x.t) === dToday || dk(x.t) === dTom); if (!h.length) return card({title:"Elpriset", ic:"bolt", c:"var(--warn)"}, '<div class="muted">Spotpriserna i Homey är gamla. Tryck på uppdatera.</div>');
+  const nowH = Math.floor(Date.now()/3600000)*3600000, cur = h.find(x => x.t === nowH), vals = h.map(x => x.v), srt = vals.slice().sort((a,b)=>a-b), lo3 = srt[Math.floor(srt.length/3)], hi3 = srt[Math.floor(srt.length*2/3)];
+  const lvl = v => v <= lo3 ? "ok" : v >= hi3 ? "bad" : "warn";
+  const W = 340, H = 160, L = 30, R = 6, T = 14, B = 24, n = h.length, bw = (W-L-R)/n, max = Math.max(.1, ...vals), min = Math.min(0, ...vals), y = v => T + (H-T-B) * (1 - (v-min)/(max-min));
+  const hf = t => new Intl.DateTimeFormat("sv-SE",{hour:"2-digit",timeZone:TZ}).format(t);
+  const bars = h.map((x,i) => '<rect x="'+(L+i*bw+.6).toFixed(1)+'" y="'+Math.min(y(x.v),y(0)).toFixed(1)+'" width="'+Math.max(1,bw-1.2).toFixed(1)+'" height="'+Math.max(1,Math.abs(y(0)-y(x.v))).toFixed(1)+'" rx="1.5" fill="var(--'+lvl(x.v)+')" opacity="'+(x.t < nowH ? .35 : x.t === nowH ? 1 : .8)+'"><title>'+hf(x.t)+':00 '+f2(x.v)+' kr</title></rect>').join("");
+  const ni = h.findIndex(x => x.t === nowH), nowLine = ni >= 0 ? '<line x1="'+(L+(ni+.5)*bw)+'" x2="'+(L+(ni+.5)*bw)+'" y1="'+(T-4)+'" y2="'+(H-B)+'" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="2 2"/><text x="'+(L+(ni+.5)*bw)+'" y="'+(T-6)+'" font-size="10" text-anchor="middle" fill="var(--ink)" font-weight="700">nu</text>' : "";
+  const mid = h.findIndex(x => dk(x.t) === dTom), midLine = mid > 0 ? '<line x1="'+(L+mid*bw)+'" x2="'+(L+mid*bw)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="var(--pink)" stroke-width="1.5"/><text x="'+(L+mid*bw+4)+'" y="'+(T+8)+'" font-size="10" fill="var(--pink)">imorgon</text>' : "";
+  const xl = h.map((x,i) => new Date(x.t).getHours() % 6 === 0 ? '<text x="'+(L+(i+.5)*bw)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="var(--muted)">'+hf(x.t)+'</text>' : "").join("");
+  const ticks = [0, max/2, max].map(v => '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(L-4)+'" y="'+(y(v)+3)+'" font-size="10" text-anchor="end" fill="var(--muted)">'+f1(v)+'</text>').join("");
+  const day = key => h.filter(x => dk(x.t) === key), stat = arr => arr.length ? {avg:arr.reduce((s,x)=>s+x.v,0)/arr.length, lo:arr.reduce((m,x)=>x.v<m.v?x:m), hi:arr.reduce((m,x)=>x.v>m.v?x:m)} : null;
+  const td = stat(day(dToday)), tm = stat(day(dTom));
+  return card({title:"Elpriset", ic:"bolt", c:"var(--warn)", right: cur ? '<span class="pill '+lvl(cur.v)+' num">'+f2(cur.v)+' kr nu</span>' : ''},
+    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block" role="img" aria-label="Spotpris per timme idag'+(tm?" och imorgon":"")+'">'+ticks+bars+midLine+nowLine+xl+'</svg>'+
+    '<div class="cons" style="margin-top:10px">'+(td?kv("Snitt idag", f2(td.avg)+" kr")+kv("Billigast idag", hf(td.lo.t)+":00 · "+f2(td.lo.v)+" kr")+kv("Dyrast idag", hf(td.hi.t)+":00 · "+f2(td.hi.v)+" kr"):"")+(tm?kv("Snitt imorgon", f2(tm.avg)+" kr"):kv("Imorgon", "kommer runt 13:00"))+'</div>'+
+    '<div class="note">Spotpris per kWh för SE3, utan moms, elnät och påslag. Grönt är dygnets billigaste tredjedel, rött den dyraste.</div>');
 }
 function priceCard(){
   const all = spot(), nowH = Math.floor(Date.now()/3600000)*3600000;
@@ -886,6 +929,7 @@ const COLORS = [["Röd",0,1],["Orange",.07,1],["Gul",.14,1],["Bajen",.39,1],["Tu
 function renderSheet(){
   const host = $("#sheetHost");
   if (!S.sheet){ host.innerHTML = ""; return; }
+  if (S.sheet.kind === "bus"){ host.innerHTML = busSheet(); bindSheetDrag(); return; }
   if (S.sheet.kind === "wx"){ const w = wxData(); if (!w || !w.daily){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = wxSheet(w, S.sheet.k, S.sheet.i); bindSheetDrag(); return; }
   if (S.sheet.kind === "ski"){ const r = ((snowData()||{}).rows||[]).find(x => x.name === S.sheet.name); if (!r){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = skiSheet(r); bindSheetDrag(); return; }
   if (S.sheet.kind){ const k = S.sheet.kind, v = dev(k==="vac"?DEV.vac:k==="mower"?DEV.mower:DEV.zaptec); if (!v){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = (k==="vac"?vacSheet:k==="mower"?mowerSheet:carSheet)(v); bindSheetDrag(); return; }
@@ -1096,7 +1140,7 @@ function shortcutsCard(){
 function viewHem(){
   const a = S.devices ? alerts() : [];
   const al = a.length ? card({title:"Att hålla koll på", ic:"alert", c:"var(--warn)", right:'<span class="pill warn num">'+a.length+'</span>'}, '<div class="list">'+a.map(x => '<'+(x.href?'a href="'+x.href+'"':'div')+' class="li"><span class="dot '+(x.cls==="info"?"":x.cls)+'" style="'+(x.cls==="info"?"background:var(--info)":"")+'"></span><span class="grow">'+esc(x.text)+'</span>'+(x.href?ic("chev",14):"")+'</'+(x.href?"a":"div")+'>').join("")+'</div>') : "";
-  return '<div class="grid"><div class="stack">'+heroCard()+busCard()+quickCard()+'</div><div class="stack">'+al+agendaCard()+alarmCard()+shortcutsCard()+'</div><div class="stack">'+energyCard()+powerHistCard()+elMonthCard()+'</div></div>';
+  return '<div class="grid"><div class="stack">'+heroCard()+busCard()+quickCard()+'</div><div class="stack">'+al+agendaCard()+alarmCard()+shortcutsCard()+'</div><div class="stack">'+energyCard()+priceChartCard()+powerHistCard()+elMonthCard()+'</div></div>';
 }
 
 /* ---------- climate ---------- */
@@ -1844,6 +1888,8 @@ document.addEventListener("click", e => {
   else if (a === "consreset"){ const k = b.dataset.k; /* two taps so a stray tap does not reset the counter */
     if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
     else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
+  else if (a === "bussheet"){ S.sheet = {kind:"bus"}; renderSheet(); }
+  else if (a === "busdir"){ S.busDir = Number(b.dataset.v); renderSheet(); }
   else if (a === "wxsheet"){ S.sheet = {kind:"wx", k:b.dataset.k, i:b.dataset.i!=null?Number(b.dataset.i):null}; renderSheet(); }
   else if (a === "skisheet"){ const n = b.dataset.n; S.sheet = {kind:"ski", name:n}; renderSheet(); const c = (S.camCache||{})[n]; if (CAM_RESORTS.includes(n) && (!c || Date.now() - Date.parse(c.at) > 15*60000)) camFetch(n); }
   else if (a === "camfetch"){ camFetch(b.dataset.n); }
