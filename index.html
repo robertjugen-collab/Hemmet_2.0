@@ -202,6 +202,7 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 .mimg{display:block;width:100%;max-width:420px;height:auto;margin:-2px auto 8px;filter:drop-shadow(0 12px 14px rgba(0,0,0,.28))}
 .imgbtn{display:block;margin:0 auto;padding:0;background:none;border:0;cursor:pointer;border-radius:18px;-webkit-tap-highlight-color:transparent}.imgbtn:active .mimg{transform:scale(.97)}.imgbtn .mimg{transition:transform .15s}
 .camrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin-top:8px;padding-bottom:4px}.camrow figure{flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}.camrow img{display:block;width:100%;height:auto;border-radius:14px;background:#0a1028}.camrow figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.htab .hrow{display:grid;grid-template-columns:26px 24px 40px 1fr 1fr 74px;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)}
 .rowbtn{all:unset;box-sizing:border-box;display:block;min-width:0;cursor:pointer;border-radius:8px}.rowbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sbars{display:flex;align-items:flex-end;gap:4px;height:96px;margin-top:8px}.sbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}.sbars i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--snow);min-height:2px}.sbars .fut i{background:repeating-linear-gradient(45deg,var(--snow) 0 4px,rgba(255,255,255,.25) 4px 8px)}.sbars span{font-size:11px;margin-top:4px;color:var(--muted);white-space:nowrap}.sbars b{font-size:11px;margin-bottom:2px}
 .cons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cons>div{padding:10px 12px;border-radius:13px;background:rgba(36,49,96,.45)}
@@ -411,7 +412,7 @@ const S = {view:"hem", devices:null, byId:{}, vars:{}, err:{}, mcp:null, noMcp:f
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nf0 = new Intl.NumberFormat("sv-SE",{maximumFractionDigits:0}), nf1 = new Intl.NumberFormat("sv-SE",{minimumFractionDigits:1,maximumFractionDigits:1}), nf2 = new Intl.NumberFormat("sv-SE",{minimumFractionDigits:2,maximumFractionDigits:2});
-const f0 = v => v==null||isNaN(v) ? "–" : nf0.format(v), f1 = v => v==null||isNaN(v) ? "–" : nf1.format(v), f2 = v => v==null||isNaN(v) ? "–" : nf2.format(v);
+const f0 = v => v==null||isNaN(v) ? "–" : nf0.format(Math.round(v)||0), f1 = v => v==null||isNaN(v) ? "–" : nf1.format(v), f2 = v => v==null||isNaN(v) ? "–" : nf2.format(v);
 const tFmt = new Intl.DateTimeFormat("sv-SE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
 const dFmt = new Intl.DateTimeFormat("sv-SE",{weekday:"long",day:"numeric",month:"long",timeZone:TZ});
 const dShort = new Intl.DateTimeFormat("sv-SE",{weekday:"short",day:"numeric",month:"short",timeZone:TZ});
@@ -884,6 +885,7 @@ const COLORS = [["Röd",0,1],["Orange",.07,1],["Gul",.14,1],["Bajen",.39,1],["Tu
 function renderSheet(){
   const host = $("#sheetHost");
   if (!S.sheet){ host.innerHTML = ""; return; }
+  if (S.sheet.kind === "wx"){ const w = wxData(); if (!w || !w.daily){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = wxSheet(w, S.sheet.k, S.sheet.i); bindSheetDrag(); return; }
   if (S.sheet.kind === "ski"){ const r = ((snowData()||{}).rows||[]).find(x => x.name === S.sheet.name); if (!r){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = skiSheet(r); bindSheetDrag(); return; }
   if (S.sheet.kind){ const k = S.sheet.kind, v = dev(k==="vac"?DEV.vac:k==="mower"?DEV.mower:DEV.zaptec); if (!v){ S.sheet = null; host.innerHTML = ""; return; } host.innerHTML = (k==="vac"?vacSheet:k==="mower"?mowerSheet:carSheet)(v); bindSheetDrag(); return; }
   const d = S.byId[S.sheet.id]; if (!d){ S.sheet = null; host.innerHTML = ""; return; }
@@ -1379,8 +1381,8 @@ function nowCard(){
   const sit = sm.measure_weather_situation_cp || WMO[cu.weather_code] || "", feels = sm.air_temperature_feels_like_cp != null ? sm.air_temperature_feels_like_cp : cu.apparent_temperature;
   const d = w.daily, ti = d && d.time ? d.time.indexOf(todayStr()) : -1, hm = s => s ? s.slice(11,16) : "–";
   const snowd = cu.snow_depth != null ? cu.snow_depth*100 : null;
-  return card({title:"Just nu hemma", ic:"sun", c:"var(--info)", right: sm.forecast_for_cp ? '<span class="xs muted">SMHI '+esc(String(sm.forecast_for_cp).split(" ").pop())+'</span>' : ''},
-    '<div class="row"><span style="color:var(--info)">'+ic(sm.measure_weather_situation_cp?wxIconText(sit):wmoIcon(cu.weather_code),56)+'</span><div class="grow"><div class="big num">'+f1(temp)+'°</div><div class="muted">'+esc(sit)+(feels!=null?' · känns som '+f0(feels)+'°':'')+'</div></div></div>'+
+  return card({title:"Just nu hemma", ic:"sun", c:"var(--info)", right:'<button type="button" class="more" data-act="wxsheet" data-k="now">Mer ›</button>'},
+    '<button type="button" class="rowbtn row" style="display:flex;width:100%" data-act="wxsheet" data-k="now" aria-label="Mer om vädret just nu"><span style="color:var(--info)">'+ic(sm.measure_weather_situation_cp?wxIconText(sit):wmoIcon(cu.weather_code),56)+'</span><div class="grow"><div class="big num">'+f1(temp)+'°</div><div class="muted">'+esc(sit)+(feels!=null?' · känns som '+f0(feels)+'°':'')+'</div></div></button>'+
     '<div class="tiles" style="margin-top:14px"><div class="tile"><div class="k">Vind</div><div class="v num">'+f0(sm.measure_wind_speed_cp!=null?sm.measure_wind_speed_cp:cu.wind_speed_10m)+'<span class="unit">m/s</span></div><div class="s">byar '+f0(sm.wind_gust_speed_cp!=null?sm.wind_gust_speed_cp:cu.wind_gusts_10m)+(sm.measure_wind_direction_heading_cp?' · '+esc(sm.measure_wind_direction_heading_cp):'')+'</div></div>'+
     '<div class="tile"><div class="k">Nederbörd</div><div class="v num">'+f1(sm.mean_precipitation_intensity_cp!=null?sm.mean_precipitation_intensity_cp:cu.precipitation)+'<span class="unit">mm/h</span></div><div class="s">'+esc(sm.measure_precipitation_situation_cp||"")+'</div></div>'+
     '<div class="tile"><div class="k">Luftfuktighet</div><div class="v num">'+f0(sm.measure_relative_humidity_cp)+'<span class="unit">%</span></div><div class="s">'+f0(sm.measure_air_pressure_cp)+' hPa</div></div>'+
@@ -1394,7 +1396,7 @@ function hoursCard(){
   if (!rows.length) return "";
   const night = iso => { const di = (sun.time||[]).indexOf(iso.slice(0,10)); if (di < 0 || !sun.sunrise) return false; return iso < sun.sunrise[di] || iso > sun.sunset[di]; };
   const sumP = rows.reduce((s,i) => s + (h.precipitation[i]||0), 0), sumS = h.snowfall ? rows.reduce((s,i) => s + (h.snowfall[i]||0), 0) : 0;
-  return card({title:"Kommande 24 timmar", ic:"cloud", c:"var(--info)", right:'<span class="xs muted num">'+(sumS>=.5?f1(sumS)+" cm snö":sumP>=.1?f1(sumP)+" mm":"uppehåll")+'</span>'},
+  return card({title:"Kommande 24 timmar", ic:"cloud", c:"var(--info)", right:'<span class="row" style="gap:8px"><span class="xs muted num">'+(sumS>=.5?f1(sumS)+" cm snö":sumP>=.1?f1(sumP)+" mm":"uppehåll")+'</span><button type="button" class="more" data-act="wxsheet" data-k="hours">Mer ›</button></span>'},
     '<div class="hours" data-keep="hours">'+rows.map((i,k) => { const p = h.precipitation[i]||0, sn = h.snowfall && h.snowfall[i] > 0; return '<div class="hr"><span class="muted num">'+(k===0?"Nu":h.time[i].slice(11,13))+'</span>'+ic(wmoIcon(h.weather_code[i], night(h.time[i])),22)+'<b class="num">'+f0(h.temperature_2m[i])+'°</b><span class="pp num">'+(sn?f1(h.snowfall[i])+" cm":p>=.1?f1(p)+" mm":"")+'</span><span class="xs muted num">'+f0(h.wind_speed_10m[i])+' m/s</span></div>'; }).join("")+'</div>'+
     '<div class="note">Blå siffror är regn i mm eller snö i cm per timme.</div>');
 }
@@ -1406,8 +1408,84 @@ function daysCard(){
   return card({title:"Kommande dagar", ic:"cal", c:"var(--info)"}, idx.map(i => {
     const name = d.time[i]===today ? "Idag" : wdFmt.format(new Date(d.time[i]+"T12:00:00Z")).replace(".",""), a = d.temperature_2m_min[i], b = d.temperature_2m_max[i];
     const sn = d.snowfall_sum && d.snowfall_sum[i] >= .5, pr = d.precipitation_sum ? d.precipitation_sum[i] : 0;
-    return '<div class="day" title="'+esc(WMO[d.weather_code[i]]||"")+'"><b style="text-transform:capitalize">'+name+'</b><span style="color:var(--info)">'+ic(wmoIcon(d.weather_code[i]),22)+'</span><span class="xs num" style="color:var(--snow);font-weight:600">'+(sn?f0(d.snowfall_sum[i])+" cm snö":pr>=.1?f1(pr)+" mm":"")+'</span><span class="muted num" style="text-align:right">'+f0(a)+'°</span><span class="range"><i style="left:'+((a-lo)/span*100)+'%;right:'+((hi-b)/span*100)+'%"></i></span><b class="num">'+f0(b)+'°</b></div>';
-  }).join(""));
+    return '<button type="button" class="day rowbtn" style="display:grid" data-act="wxsheet" data-k="day" data-i="'+i+'" title="'+esc(WMO[d.weather_code[i]]||"")+'"><b style="text-transform:capitalize">'+name+'</b><span style="color:var(--info)">'+ic(wmoIcon(d.weather_code[i]),22)+'</span><span class="xs num" style="color:var(--snow);font-weight:600">'+(sn?f0(d.snowfall_sum[i])+" cm snö":pr>=.1?f1(pr)+" mm":"")+'</span><span class="muted num" style="text-align:right">'+f0(a)+'°</span><span class="range"><i style="left:'+((a-lo)/span*100)+'%;right:'+((hi-b)/span*100)+'%"></i></span><b class="num">'+f0(b)+'°</b></button>';
+  }).join("")+'<div class="note">Tryck på en dag för mer.</div>');
+}
+/* ---------- weather pop-ups ---------- */
+const DIRS = ["N","NO","O","SO","S","SV","V","NV"];
+const dirTxt = deg => deg == null ? "" : DIRS[Math.round(((deg%360)+360)%360/45)%8];
+const dirName = deg => deg == null ? "" : ({N:"nordlig",NO:"nordostlig",O:"ostlig",SO:"sydostlig",S:"sydlig",SV:"sydvästlig",V:"västlig",NV:"nordvästlig"})[dirTxt(deg)];
+/* wind blows FROM deg, so the arrow points the other way */
+const arrow = deg => deg == null ? "" : '<svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;transform:rotate('+((deg+180)%360)+'deg)" aria-hidden="true"><path d="M12 3l6 12h-12z" fill="currentColor"/><rect x="11" y="13" width="2" height="8" fill="currentColor"/></svg>';
+const hDur = s => s == null ? "–" : Math.floor(s/3600)+" h "+Math.round(s%3600/60)+" min";
+const uvTxt = u => u == null ? "–" : f1(u)+" · "+(u < 3 ? "låg" : u < 6 ? "måttlig" : u < 8 ? "hög" : "mycket hög");
+/* temperature line with precipitation bars; rows are hourly indexes */
+function wxChart(h, rows, night){
+  if (!rows.length) return "";
+  const W = 340, H = 150, L = 26, R = 16, T = 16, B = 26, n = rows.length, tx = k => L + (W-L-R) * (n > 1 ? k/(n-1) : .5);
+  const temps = rows.map(i => h.temperature_2m[i]), lo = Math.floor(Math.min(...temps)) - 1, hi = Math.ceil(Math.max(...temps)) + 1, ty = v => T + (H-T-B) * (1 - (v-lo)/Math.max(1, hi-lo));
+  const pmax = Math.max(2, ...rows.map(i => (h.precipitation[i]||0))), bw = Math.max(2, (W-L-R)/n - 2);
+  const bars = rows.map((i,k) => { const pv = h.precipitation[i]||0; if (pv < .05) return ""; const bh = (H-T-B) * pv/pmax * .6; return '<rect x="'+(tx(k)-bw/2)+'" y="'+(H-B-bh)+'" width="'+bw+'" height="'+bh+'" rx="1.5" fill="'+(h.snowfall && h.snowfall[i] > 0 ? "var(--snow)" : "var(--info)")+'" opacity=".55"/>'; }).join("");
+  const nightBg = rows.map((i,k) => night && night(h.time[i]) ? '<rect x="'+(tx(k)-(W-L-R)/n/2)+'" y="'+T+'" width="'+((W-L-R)/n+.5)+'" height="'+(H-T-B)+'" fill="rgba(0,0,0,.18)"/>' : "").join("");
+  const pts = rows.map((i,k) => tx(k).toFixed(1)+","+ty(h.temperature_2m[i]).toFixed(1)).join(" ");
+  const zero = lo < 0 && hi > 0 ? '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+ty(0)+'" y2="'+ty(0)+'" stroke="var(--muted)" stroke-dasharray="3 3" opacity=".5"/>' : "";
+  const step = n > 30 ? 6 : n > 14 ? 3 : 2;
+  const labels = rows.map((i,k) => k % step === 0 ? '<text x="'+tx(k)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="var(--muted)">'+h.time[i].slice(11,13)+'</text>' : "").join("");
+  const yl = [lo, Math.round((lo+hi)/2), hi].map(v => '<text x="'+(L-4)+'" y="'+(ty(v)+3)+'" font-size="10" text-anchor="end" fill="var(--muted)">'+v+'°</text>').join("");
+  const mi = temps.indexOf(Math.max(...temps)), ni = temps.indexOf(Math.min(...temps));
+  const mark = (k, v) => '<circle cx="'+tx(k)+'" cy="'+ty(v)+'" r="3" fill="var(--accent)"/><text x="'+tx(k)+'" y="'+(ty(v)-6)+'" font-size="10" text-anchor="middle" fill="currentColor" font-weight="700">'+f0(v)+'°</text>';
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;margin-top:8px;color:var(--ink)" role="img" aria-label="Temperatur och nederbörd timme för timme">'+nightBg+bars+zero+yl+'<polyline points="'+pts+'" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'+mark(mi, temps[mi])+(ni!==mi?mark(ni, temps[ni]):"")+labels+'</svg>'+
+    '<div class="xs muted">Linjen är temperatur, staplarna nederbörd (blå regn, ljusa snö). Mörkare fält är natt.</div>';
+}
+function hourTable(h, rows, night){
+  return '<div class="htab">'+rows.map(i => { const p = h.precipitation[i]||0, sn = h.snowfall && h.snowfall[i] > 0, pp = h.precipitation_probability ? h.precipitation_probability[i] : null;
+    return '<div class="hrow"><span class="num muted">'+h.time[i].slice(11,13)+'</span><span style="color:var(--info)">'+ic(wmoIcon(h.weather_code[i], night && night(h.time[i])),20)+'</span><b class="num">'+f0(h.temperature_2m[i])+'°</b>'+
+      '<span class="xs muted num">'+(h.apparent_temperature?"känns "+f0(h.apparent_temperature[i])+"°":"")+'</span>'+
+      '<span class="xs num" style="color:'+(sn?"var(--snow)":"var(--info)")+'">'+(sn?f1(h.snowfall[i])+" cm":p>=.1?f1(p)+" mm":"")+(pp!=null&&pp>=10?' <span class="muted">'+f0(pp)+'%</span>':'')+'</span>'+
+      '<span class="xs num" style="text-align:right">'+arrow(h.wind_direction_10m && h.wind_direction_10m[i])+' '+f0(h.wind_speed_10m[i])+(h.wind_gusts_10m?' <span class="muted">('+f0(h.wind_gusts_10m[i])+')</span>':'')+'</span></div>'; }).join("")+'</div>'+
+    '<div class="xs muted" style="margin-top:6px">Vind i m/s med byar inom parentes. Pilen visar vart vinden blåser. Procent är risken för nederbörd.</div>';
+}
+function wxSheet(w, k, di){
+  const h = w.hourly || {}, d = w.daily || {}, cu = w.current || {}, sm = (dev(DEV.smhi)||{}).state || {}, today = todayStr();
+  const night = iso => { const x = (d.time||[]).indexOf(iso.slice(0,10)); if (x < 0 || !d.sunrise) return false; return iso < d.sunrise[x] || iso > d.sunset[x]; };
+  const hm = s => s ? s.slice(11,16) : "–", ti = (d.time||[]).indexOf(today);
+  if (k === "now"){
+    const ute = st(DEV.ute,"measure_temperature"), temp = ute != null ? ute : sm.measure_air_temperature_cp != null ? sm.measure_air_temperature_cp : cu.temperature_2m;
+    const sit = sm.measure_weather_situation_cp || WMO[cu.weather_code] || "", feels = sm.air_temperature_feels_like_cp != null ? sm.air_temperature_feels_like_cp : cu.apparent_temperature;
+    const wind = sm.measure_wind_speed_cp != null ? sm.measure_wind_speed_cp : cu.wind_speed_10m, gust = sm.wind_gust_speed_cp != null ? sm.wind_gust_speed_cp : cu.wind_gusts_10m, wdir = sm.measure_wind_direction_cp != null ? sm.measure_wind_direction_cp : cu.wind_direction_10m;
+    const outs = (S.devices||[]).filter(x => x.type === "sensor" && x.state && typeof x.state.measure_temperature === "number" && /Trädgård|Altan/.test(x.zone||"") && !/pool/i.test(x.name));
+    const next = []; const now = Date.now() - 3600000; for (let i = 0; i < (h.time||[]).length && next.length < 12; i++) if (Date.parse(h.time[i]) >= now) next.push(i);
+    return sheetFrame("Just nu hemma", "Lilltjäravägen", sit?'<span class="pill">'+esc(sit)+'</span>':'',
+      '<div class="row" style="margin-top:14px"><span style="color:var(--info)">'+ic(sm.measure_weather_situation_cp?wxIconText(sit):wmoIcon(cu.weather_code, cu.is_day===0),64)+'</span><div class="grow"><div class="big num">'+(temp!=null?f1(temp):"–")+'°</div><div class="muted">'+(feels!=null?'känns som '+f0(feels)+'°':'')+(ti>=0?' · idag '+f0(d.temperature_2m_min[ti])+'° till '+f0(d.temperature_2m_max[ti])+'°':'')+'</div></div></div>'+
+      '<div class="lbl">Vind och luft</div><div class="cons">'+kv("Vind", wind!=null?f0(wind)+" m/s "+arrow(wdir)+" "+dirTxt(wdir):"–")+kv("Byar", gust!=null?f0(gust)+" m/s":"–")+kv("Luftfuktighet", (sm.measure_relative_humidity_cp??cu.relative_humidity_2m)!=null?f0(sm.measure_relative_humidity_cp??cu.relative_humidity_2m)+" %":"–")+kv("Lufttryck", (sm.measure_air_pressure_cp??cu.pressure_msl)!=null?f0(sm.measure_air_pressure_cp??cu.pressure_msl)+" hPa":"–")+kv("Molnighet", (sm.mean_value_of_total_cloud_cover_cp!=null?f0(sm.mean_value_of_total_cloud_cover_cp/8*100):cu.cloud_cover!=null?f0(cu.cloud_cover):"–")+" %")+kv("Sikt", sm.horizontal_visibility_cp!=null?f0(sm.horizontal_visibility_cp)+" km":"–")+'</div>'+
+      '<div class="lbl">Nederbörd och snö</div><div class="cons">'+kv("Just nu", f1(sm.mean_precipitation_intensity_cp??cu.precipitation??0)+" mm/h")+kv("Idag totalt", ti>=0&&d.precipitation_sum?f1(d.precipitation_sum[ti])+" mm":"–")+kv("Risk idag", ti>=0&&d.precipitation_probability_max?f0(d.precipitation_probability_max[ti])+" %":"–")+kv("Snödjup", cu.snow_depth!=null?f0(cu.snow_depth*100)+" cm":"–")+(sm.measure_thunder_probability_cp!=null?kv("Åskrisk", f0(sm.measure_thunder_probability_cp)+" %"):"")+kv("UV", uvTxt(cu.uv_index))+'</div>'+
+      (ti>=0&&d.sunrise?'<div class="lbl">Sol</div><div class="cons">'+kv("Upp", hm(d.sunrise[ti]))+kv("Ned", hm(d.sunset[ti]))+kv("Dagens längd", hDur(d.daylight_duration&&d.daylight_duration[ti]))+kv("Soltimmar", hDur(d.sunshine_duration&&d.sunshine_duration[ti]))+'</div>':'')+
+      (outs.length?'<div class="lbl">Dina givare ute</div>'+outs.map(x => '<div class="li"><span class="grow">'+esc(x.name)+'<div class="xs muted">'+esc(zoneOf(x))+'</div></span><b class="num">'+f1(x.state.measure_temperature)+'°</b></div>').join(""):'')+
+      (next.length?'<div class="lbl">Närmaste 12 timmarna</div>'+wxChart(h, next, night):'')+
+      '<div class="note">'+(sm.forecast_for_cp?'Väderläget kommer från SMHI ('+esc(String(sm.forecast_for_cp))+'), ':'')+'resten från Open-Meteo. Temperaturen är din utegivare när den finns.</div>');
+  }
+  if (k === "hours"){
+    const now = Date.now() - 3600000, rows = []; for (let i = 0; i < (h.time||[]).length && rows.length < 48; i++) if (Date.parse(h.time[i]) >= now) rows.push(i);
+    const r24 = rows.slice(0,24), sum = (a, key) => a.reduce((s,i) => s + ((h[key]||[])[i]||0), 0);
+    const gmax = Math.max(...r24.map(i => (h.wind_gusts_10m||[])[i]||0)), tmin = Math.min(...r24.map(i => h.temperature_2m[i])), tmax = Math.max(...r24.map(i => h.temperature_2m[i]));
+    return sheetFrame("Kommande timmar", "Timme för timme, 48 timmar framåt", '',
+      '<div class="cons" style="margin-top:14px">'+kv("Temperatur 24 h", f0(tmin)+"° till "+f0(tmax)+"°")+kv("Nederbörd 24 h", sum(r24,"snowfall")>=.5?f1(sum(r24,"snowfall"))+" cm snö":f1(sum(r24,"precipitation"))+" mm")+kv("Hårdaste byar", f0(gmax)+" m/s")+kv("Timmar med nederbörd", r24.filter(i => (h.precipitation[i]||0) >= .1).length+" av 24")+'</div>'+
+      '<div class="lbl">Närmaste 48 timmarna</div>'+wxChart(h, rows, night)+'<div class="lbl">Timme för timme</div>'+hourTable(h, rows, night));
+  }
+  const i = di != null ? di : ti; if (i < 0 || !d.time || !d.time[i]) return sheetFrame("Prognos", "", "", '<div class="muted">Ingen prognos för dagen.</div>');
+  const date = d.time[i], rows = (h.time||[]).map((x,j) => j).filter(j => h.time[j].slice(0,10) === date), name = date === today ? "Idag" : new Intl.DateTimeFormat("sv-SE",{weekday:"long",day:"numeric",month:"long",timeZone:TZ}).format(new Date(date+"T12:00:00"));
+  const g = key => d[key] ? d[key][i] : null, sn = g("snowfall_sum");
+  const parts = [["Natt",0,6],["Morgon",6,12],["Eftermiddag",12,18],["Kväll",18,24]].map(([lbl,a,b]) => { const rr = rows.filter(j => { const hh = +h.time[j].slice(11,13); return hh >= a && hh < b; }); if (!rr.length) return ""; const mid = rr[Math.floor(rr.length/2)], tt = rr.map(j => h.temperature_2m[j]), pr = rr.reduce((s,j) => s + (h.precipitation[j]||0), 0);
+    return '<div class="li"><b style="width:96px">'+lbl+'</b><span style="color:var(--info)">'+ic(wmoIcon(h.weather_code[mid], lbl==="Natt"||lbl==="Kväll"),20)+'</span><span class="grow small muted ellip" style="margin-left:8px">'+esc(WMO[h.weather_code[mid]]||"")+'</span><span class="num small" style="white-space:nowrap">'+f0(Math.min(...tt))+"° / "+f0(Math.max(...tt))+'°</span><span class="num xs" style="width:52px;text-align:right;color:var(--info)">'+(pr>=.1?f1(pr)+" mm":"")+'</span></div>'; }).join("");
+  return sheetFrame(name.charAt(0).toUpperCase()+name.slice(1), "Prognos för Lilltjäravägen", '<span class="pill">'+esc(WMO[g("weather_code")]||"")+'</span>',
+    '<div class="row" style="margin-top:14px"><span style="color:var(--info)">'+ic(wmoIcon(g("weather_code")),56)+'</span><div class="grow"><div class="big num">'+f0(g("temperature_2m_max"))+'°<span class="muted" style="font-size:.5em"> / '+f0(g("temperature_2m_min"))+'°</span></div><div class="muted">'+(g("apparent_temperature_max")!=null?'känns som '+f0(g("apparent_temperature_min"))+'° till '+f0(g("apparent_temperature_max"))+'°':'')+'</div></div></div>'+
+    (parts?'<div class="lbl">Under dagen</div>'+parts:'')+
+    (rows.length?'<div class="lbl">Timme för timme</div>'+wxChart(h, rows, night):'')+
+    '<div class="lbl">Nederbörd</div><div class="cons">'+kv(sn>=.5?"Snö":"Mängd", sn>=.5?f1(sn)+" cm":f1(g("precipitation_sum")||0)+" mm")+kv("Risk", g("precipitation_probability_max")!=null?f0(g("precipitation_probability_max"))+" %":"–")+kv("Timmar med nederbörd", g("precipitation_hours")!=null?f0(g("precipitation_hours"))+" h":"–")+'</div>'+
+    '<div class="lbl">Vind</div><div class="cons">'+kv("Medelvind max", g("wind_speed_10m_max")!=null?f0(g("wind_speed_10m_max"))+" m/s":"–")+kv("Byar", g("wind_gusts_10m_max")!=null?f0(g("wind_gusts_10m_max"))+" m/s":"–")+kv("Mest", g("wind_direction_10m_dominant")!=null?arrow(g("wind_direction_10m_dominant"))+" "+dirName(g("wind_direction_10m_dominant"))+" vind":"–")+'</div>'+
+    '<div class="lbl">Sol</div><div class="cons">'+kv("Upp", hm(g("sunrise")))+kv("Ned", hm(g("sunset")))+kv("Soltimmar", hDur(g("sunshine_duration")))+kv("UV max", uvTxt(g("uv_index_max")))+'</div>'+
+    (rows.length?'<div class="lbl">Alla timmar</div>'+hourTable(h, rows, night):'')+
+    '<div class="note">Prognos från Open-Meteo.</div>');
 }
 function snowData(){
   const j = getVarJSON(VAR.snow); if (!j) return null; if (!Array.isArray(j)) return j.error ? {error:j.reason||"okänt fel"} : null;
@@ -1765,6 +1843,7 @@ document.addEventListener("click", e => {
   else if (a === "consreset"){ const k = b.dataset.k; /* two taps so a stray tap does not reset the counter */
     if (S.consArm === k){ S.consArm = null; clearTimeout(S.consT); runFlow(VACRESET[k], b.dataset.label+" är nollställd", b); invalidate("list_devices", 4000); renderSheet(); }
     else { S.consArm = k; clearTimeout(S.consT); S.consT = setTimeout(() => { S.consArm = null; renderSheet(); }, 4000); renderSheet(); } }
+  else if (a === "wxsheet"){ S.sheet = {kind:"wx", k:b.dataset.k, i:b.dataset.i!=null?Number(b.dataset.i):null}; renderSheet(); }
   else if (a === "skisheet"){ const n = b.dataset.n; S.sheet = {kind:"ski", name:n}; renderSheet(); const c = (S.camCache||{})[n]; if (CAM_RESORTS.includes(n) && (!c || Date.now() - Date.parse(c.at) > 15*60000)) camFetch(n); }
   else if (a === "camfetch"){ camFetch(b.dataset.n); }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
