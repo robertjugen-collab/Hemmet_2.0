@@ -548,7 +548,12 @@ function makeLocal(conn){
     set_mood: inp => api("POST","/manager/moods/mood/"+inp.moodId+"/set", {}),
     set_variable: inp => api("PUT","/manager/logic/variable/"+inp.variableId, {value:inp.value}),
     update_variable: inp => api("PUT","/manager/logic/variable/"+inp.variableId, {value:(inp.variable||{}).value}),
-    run_flow_card_action: inp => { const k = inp.cardId.lastIndexOf(":"); return api("POST","/manager/flow/flowcardaction/"+encodeURIComponent(inp.cardId.slice(0,k))+"/"+encodeURIComponent(inp.cardId.slice(k+1))+"/run", {args:inp.args||{}}); }
+    /* Homey wants the owner uri and the card's full id, e.g. homey:device:<id> and homey:device:<id>:clean_rooms_with_config */
+    async run_flow_card_action(inp){
+      const k = inp.cardId.lastIndexOf(":"), uri = encodeURIComponent(inp.cardId.slice(0,k)), body = {args:inp.args||{}};
+      try { return await api("POST","/manager/flow/flowcardaction/"+uri+"/"+encodeURIComponent(inp.cardId)+"/run", body); }
+      catch(e){ if (!/not.?found/i.test(String(e.message||""))) throw e; return api("POST","/manager/flow/flowcardaction/"+uri+"/"+encodeURIComponent(inp.cardId.slice(k+1))+"/run", body); }
+    }
   };
   const EVERY = {list_devices:10000, list_variables:60000}, watches = [];
   const run = w => { const fn = tools[w.tool]; if (!fn){ w.h({type:"error", error:{code:"only_in_claude"}}); return; } fn(w.input).then(p => w.h({type:"data", result:{payload:p, cache:{storedAt:Date.now()}}})).catch(e => w.h({type:"error", error:e})); };
