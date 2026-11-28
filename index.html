@@ -204,6 +204,7 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 .camrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin-top:8px;padding-bottom:4px}.camrow figure{flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}.camrow img{display:block;width:100%;height:auto;border-radius:14px;background:#0a1028}.camrow figcaption{font-size:13px;color:var(--muted);margin-top:6px}
 .htab .hrow{display:grid;grid-template-columns:26px 24px 40px 1fr 1fr 74px;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)}
 button.chip{border:0;font:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:40px}button.chip[aria-pressed=true]{background:var(--info);color:#06121f;box-shadow:none}
+.juldot{width:14px;height:14px;border-radius:50%;flex:none;margin-right:10px;background:#3a4a7a}.julrow.on .juldot{animation:julfade 14s ease-in-out infinite}@keyframes julfade{0%,43%{background:#19e05a;box-shadow:0 0 12px #19e05a}57%,100%{background:#ff2b3a;box-shadow:0 0 12px #ff2b3a}}@media (prefers-reduced-motion:reduce){.julrow.on .juldot{animation:none;background:linear-gradient(90deg,#19e05a 50%,#ff2b3a 50%)}}
 .rowbtn{all:unset;box-sizing:border-box;display:block;min-width:0;cursor:pointer;border-radius:8px}.rowbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sbars{display:flex;align-items:flex-end;gap:4px;height:96px;margin-top:8px}.sbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}.sbars i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--snow);min-height:2px}.sbars .fut i{background:repeating-linear-gradient(45deg,var(--snow) 0 4px,rgba(255,255,255,.25) 4px 8px)}.sbars span{font-size:11px;margin-top:4px;color:var(--muted);white-space:nowrap}.sbars b{font-size:11px;margin-bottom:2px}
 .cons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cons>div{padding:10px 12px;border-radius:13px;background:rgba(36,49,96,.45)}
@@ -370,6 +371,7 @@ const DEV = {
   smhi:"5335d859-42a1-404c-9973-fa740bfc5e63", ute:"8f82ef0f-1c3e-4d52-b5a6-042189925bec"
 };
 const VAR = {
+  jul:"94f2fdc4-ce0b-4c8a-b9d6-6f44380a5618",
   pist:"174e3263-2aab-4d48-9fbc-31fdbfd714c9",
   camVal:"ac71e29c-5d2d-4dee-b363-c48d8413221e", camImg:"e6186bf9-7fba-4b94-b057-b586503f4d6e",
   wx:"db6c5f28-514b-4a21-a6cd-bcae0ac9d552", snow:"9cab7519-d396-44eb-90a2-5d39494b7742", wxOld:"4128e108-e4da-47c4-b374-ddb9fc18cdef",
@@ -865,6 +867,29 @@ const SCENES = [
 ];
 /* the user's Homey flows that colour Sonoslampa Kök by electricity price all check this variable */
 const PRICE_FLOWS = ["0f7f2979-e3fd-4eae-a129-f68c146ea1a0","c1aad188-4189-408f-ace9-86d8f80c813e","d052c7f9-c754-4a77-bf12-3d3d7e14177b"];
+/* christmas mode: the porch LED strip fades between green and red, looped by the Homey flow "Julläge: Farstukvist (slinga)" */
+const JUL_FLOW = "99ddc4bb-15f4-49fb-88c0-b09a1d340a08", JUL_LED = "2ee13977-2769-4bcb-bb53-effe14596452";
+function julOn(){ if (S.julLocal != null) return S.julLocal; const v = (S.vars[VAR.jul]||{}).value; return v === true || v === "true"; }
+async function setJul(on, btn){
+  if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
+  S.julLocal = on; render(); if (btn) btn.classList.add("busy"); buzz();
+  try {
+    await setVar(VAR.jul, on);
+    const led = dev(JUL_LED), lit = led && led.state.onoff;
+    if (on){
+      /* if the strip is off, turning it on starts the loop by itself (flow "startar när listen tänds") */
+      if (lit) await S.mcp.callTool(HOMEY, "start_flow", {flowId:JUL_FLOW, flowType:"standard"});
+      else await S.mcp.callTool(HOMEY, "set_devices_capabilities_values", {state:{[JUL_LED]:{onoff:true, dim:1}}});
+      toast("Julläget är på");
+    } else {
+      if (lit) await S.mcp.callTool(HOMEY, "set_devices_capabilities_values", {state:{[JUL_LED]:{light_mode:"temperature", light_temperature:.5}}}).catch(() => {});
+      toast("Julläget är av");
+    }
+    invalidate("list_variables", 2500); invalidate("list_devices", 2500);
+    setTimeout(() => { S.julLocal = null; }, 8000);
+  } catch(e){ S.julLocal = null; toast(errText(e)); render(); }
+  finally { if (btn) btn.classList.remove("busy"); }
+}
 function priceLampOn(){ if (S.priceLampLocal != null) return S.priceLampLocal; const v = (S.vars[VAR.priceLamp]||{}).value; return v == null ? true : v === true || v === "true"; }
 async function setPriceLamp(on, btn, quiet){
   if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
@@ -928,7 +953,8 @@ function viewLjus(){
   const head = card({}, '<div class="row"><div class="grow"><div class="mid num">'+onN+' av '+L.length+' tända</div><div class="small muted">Tryck på en lampa för att tända eller släcka. Färg och ton öppnar fler val.</div></div><button type="button" class="btn danger" data-act="alloff">'+ic("power",16)+'Släck allt</button></div>'+
     '<div class="lbl">Scener</div><div class="swatches">'+SCENES.map(s => '<button type="button" class="swatch'+(cfg().mode===s.id?" on":"")+'" data-act="scene" data-id="'+s.id+'" title="'+esc(s.desc)+'"'+(MODES.includes(s.id)?' aria-pressed="'+(cfg().mode===s.id)+'"':'')+'><i style="background:'+s.sw+'"></i>'+s.label+(cfg().mode===s.id?" · på":"")+'</button>').join("")+
     MOODS.map(m => '<button type="button" class="swatch" data-act="mood" data-id="'+m.id+'"><i style="background:linear-gradient(135deg,#34406b,#f2b632)"></i>'+esc(m.label.split(" ")[0])+'</button>').join("")+'</div>'+
-    '<div class="row" style="margin-top:16px;padding:12px;border-radius:13px;background:rgba(36,49,96,.45)"><span class="grow"><b>Elpriset på Sonoslampan</b><div class="xs muted">'+(priceLampOn()?"Sonoslampa Kök blir grön, gul eller röd efter elpriset.":cfg().mode?"Pausat så länge "+((SCENES.find(s => s.id === cfg().mode)||{}).label||"")+"-läget är på.":"Avstängt. Lampan behåller färgen du väljer.")+'</div></span><button type="button" class="sw" role="switch" aria-checked="'+priceLampOn()+'" data-act="pricelamp" aria-label="Visa elpriset på Led-list kök kort"></button></div>'+
+    (dev(JUL_LED)?'<div class="row julrow'+(julOn()?" on":"")+'" style="margin-top:16px;padding:12px;border-radius:13px;background:rgba(36,49,96,.45)"><span class="juldot" aria-hidden="true"></span><span class="grow"><b>Julläge på farstukvisten</b><div class="xs muted">'+(julOn()?"Led-listen tonar mellan grönt och rött. Den vilar när listen är släckt och fortsätter när den tänds.":"Led-list Farstukvist tonar mjukt mellan grönt och rött hela tiden.")+'</div></span><button type="button" class="sw" role="switch" aria-checked="'+julOn()+'" data-act="jul" aria-label="Julläge på farstukvisten"></button></div>':'')+
+    '<div class="row" style="margin-top:10px;padding:12px;border-radius:13px;background:rgba(36,49,96,.45)"><span class="grow"><b>Elpriset på Sonoslampan</b><div class="xs muted">'+(priceLampOn()?"Sonoslampa Kök blir grön, gul eller röd efter elpriset.":cfg().mode?"Pausat så länge "+((SCENES.find(s => s.id === cfg().mode)||{}).label||"")+"-läget är på.":"Avstängt. Lampan behåller färgen du väljer.")+'</div></span><button type="button" class="sw" role="switch" aria-checked="'+priceLampOn()+'" data-act="pricelamp" aria-label="Visa elpriset på Led-list kök kort"></button></div>'+
     '<div class="lbl row">Egna scener<span class="grow"></span>'+(cfg().scenes.length?'<button type="button" class="more" data-act="sceneedit" style="text-transform:none;letter-spacing:0">'+(S.sceneEdit?"Klar":"Ändra")+'</button>':'')+'</div>'+
     (cfg().scenes.length?'<div class="swatches" style="margin-top:0">'+cfg().scenes.map((s,i) => { const cols = Object.keys(s.m).map(id => { const c = s.m[id]; return !c.onoff ? null : c.light_mode==="color" ? hsCss(c.light_hue,c.light_saturation) : c.light_temperature!=null ? tempCss(c.light_temperature) : "#ffd35e"; }).filter(Boolean).slice(0,4); return '<button type="button" class="swatch" data-act="'+(S.sceneEdit?"scenedel":"myscene")+'" data-i="'+i+'"><i style="background:'+(cols.length>1?"conic-gradient("+cols.concat(cols[0]).join(",")+")":cols[0]||"var(--surface-3)")+';'+(S.sceneEdit?"box-shadow:inset 0 0 0 2px var(--bad)":"")+'">'+(S.sceneEdit?'<span style="display:grid;place-items:center;height:100%;color:#fff;font-weight:800;font-style:normal;background:rgba(0,0,0,.45);border-radius:50%">×</span>':'')+'</i>'+esc(s.n)+'</button>'; }).join("")+'</div>':'<div class="small muted">Ställ in lamporna som du vill ha dem och spara läget här.</div>')+
     '<form class="row" data-form="scene" style="margin-top:10px"><input class="inp grow" id="sceneName" type="text" maxlength="18" placeholder="Namn, till exempel Fredagsmys" value="'+esc(S.sceneName)+'" aria-label="Namn på scenen"><button type="submit" class="btn pri">Spara</button></form>');
@@ -1961,6 +1987,7 @@ document.addEventListener("click", e => {
     if (Object.keys(m).length) setCaps(m, "Samma ljus i hela "+zoneOf(d), b);
   }
   else if (a === "favto"){ S.favTo = id; render(); }
+  else if (a === "jul"){ setJul(!julOn(), b); }
   else if (a === "pricelamp"){ setPriceLamp(!priceLampOn(), b); }
   else if (a === "favtab"){ S.favTab = b.dataset.v; render(); }
   else if (a === "fav") playFav(id, b.dataset.label, b);
