@@ -934,7 +934,16 @@ function viewLjus(){
 }
 const WHITES = [["Stearin",1],["Varmvit",.8],["Neutral",.5],["Dagsljus",.15]];
 const COLORS = [["Röd",0,1],["Orange",.07,1],["Gul",.14,1],["Bajen",.39,1],["Turkos",.5,1],["Blå",.64,1],["Lila",.76,1],["Rosa",.9,.75]];
+/* redraws keep the pop-up where it was scrolled, so a tap on a choice doesn't jump to the top */
 function renderSheet(){
+  const old = document.querySelector("#sheetHost .sheet"), key = S.sheet ? JSON.stringify(S.sheet) : "", same = old && S.sheetKey === key, top = old ? old.scrollTop : 0;
+  const fe = document.activeElement, fsel = fe && fe.closest && fe.closest(".sheet") && fe.dataset && fe.dataset.act ? '[data-act="'+fe.dataset.act+'"]'+["k","v","r","cap","id"].filter(k => fe.dataset[k] != null).map(k => '[data-'+k+'="'+CSS.escape(fe.dataset[k])+'"]').join("") : null;
+  renderSheetBody();
+  S.sheetKey = key;
+  const nw = document.querySelector("#sheetHost .sheet");
+  if (nw && same){ nw.scrollTop = top; if (fsel){ const f = nw.querySelector(fsel); if (f) try { f.focus({preventScroll:true}); } catch(e){} } }
+}
+function renderSheetBody(){
   const host = $("#sheetHost");
   if (!S.sheet){ host.innerHTML = ""; return; }
   if (S.sheet.kind === "bus"){ host.innerHTML = busSheet(); bindSheetDrag(); return; }
