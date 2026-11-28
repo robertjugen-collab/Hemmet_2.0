@@ -203,6 +203,7 @@ input.warmth::-webkit-slider-thumb{margin-top:-4px}
 .imgbtn{display:block;margin:0 auto;padding:0;background:none;border:0;cursor:pointer;border-radius:18px;-webkit-tap-highlight-color:transparent}.imgbtn:active .mimg{transform:scale(.97)}.imgbtn .mimg{transition:transform .15s}
 .camrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin-top:8px;padding-bottom:4px}.camrow figure{flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}.camrow img{display:block;width:100%;height:auto;border-radius:14px;background:#0a1028}.camrow figcaption{font-size:13px;color:var(--muted);margin-top:6px}
 .htab .hrow{display:grid;grid-template-columns:26px 24px 40px 1fr 1fr 74px;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+button.chip{border:0;font:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:40px}button.chip[aria-pressed=true]{background:var(--info);color:#06121f;box-shadow:none}
 .rowbtn{all:unset;box-sizing:border-box;display:block;min-width:0;cursor:pointer;border-radius:8px}.rowbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sbars{display:flex;align-items:flex-end;gap:4px;height:96px;margin-top:8px}.sbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}.sbars i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--snow);min-height:2px}.sbars .fut i{background:repeating-linear-gradient(45deg,var(--snow) 0 4px,rgba(255,255,255,.25) 4px 8px)}.sbars span{font-size:11px;margin-top:4px;color:var(--muted);white-space:nowrap}.sbars b{font-size:11px;margin-bottom:2px}
 .cons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cons>div{padding:10px 12px;border-radius:13px;background:rgba(36,49,96,.45)}
@@ -545,7 +546,9 @@ function makeLocal(conn){
     },
     start_flow: inp => api("POST","/manager/flow/"+(inp.flowType === "advanced" ? "advancedflow" : "flow")+"/"+inp.flowId+"/trigger", {}),
     set_mood: inp => api("POST","/manager/moods/mood/"+inp.moodId+"/set", {}),
-    set_variable: inp => api("PUT","/manager/logic/variable/"+inp.variableId, {value:inp.value})
+    set_variable: inp => api("PUT","/manager/logic/variable/"+inp.variableId, {value:inp.value}),
+    update_variable: inp => api("PUT","/manager/logic/variable/"+inp.variableId, {value:(inp.variable||{}).value}),
+    run_flow_card_action: inp => { const k = inp.cardId.lastIndexOf(":"); return api("POST","/manager/flow/flowcardaction/"+encodeURIComponent(inp.cardId.slice(0,k))+"/"+encodeURIComponent(inp.cardId.slice(k+1))+"/run", {args:inp.args||{}}); }
   };
   const EVERY = {list_devices:10000, list_variables:60000}, watches = [];
   const run = w => { const fn = tools[w.tool]; if (!fn){ w.h({type:"error", error:{code:"only_in_claude"}}); return; } fn(w.input).then(p => w.h({type:"data", result:{payload:p, cache:{storedAt:Date.now()}}})).catch(e => w.h({type:"error", error:e})); };
@@ -611,7 +614,7 @@ function cfg(){ if (S.cfgLocal) return S.cfgLocal; const j = getVarJSON(VAR.cfg)
 async function saveCfg(c, label){
   c = Object.assign({}, cfg(), c); S.cfgLocal = c; render();
   if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad för att spara."); return; }
-  try { await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.cfg, value:JSON.stringify(c)}); if (label) toast(label); }
+  try { await setVar(VAR.cfg, JSON.stringify(c)); if (label) toast(label); }
   catch(e){ toast("Kunde inte spara: "+errText(e)); }
 }
 /* ---------- history from Homey Insights ---------- */
@@ -821,6 +824,11 @@ function queueCaps(id, caps, now){
   const flush = () => { const m = Object.assign({}, pend); Object.keys(pend).forEach(k => delete pend[k]); if (Object.keys(m).length){ S.holdUntil = Date.now()+2500; setTimeout(render, 2700); act("set_devices_capabilities_values", {state:m}); } };
   if (now) flush(); else pendT = setTimeout(flush, 280);
 }
+/* Homey's connector renamed set_variable to update_variable; try the new name first */
+async function setVar(id, value){
+  try { return await S.mcp.callTool(HOMEY, "update_variable", {variableId:id, variable:{value}}); }
+  catch(e){ if (e && /not.?granted|not_declared|unknown|not found|no such tool/i.test(String(e.code||"")+" "+String(e.message||""))) return S.mcp.callTool(HOMEY, "set_variable", {variableId:id, value}); throw e; }
+}
 const runFlow = (id, label, btn, type) => act("start_flow", {flowId:id, flowType:type||"standard"}, label, btn);
 let lastRefresh = 0;
 async function refreshAll(btn){
@@ -857,7 +865,7 @@ async function setPriceLamp(on, btn, quiet){
   if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
   S.priceLampLocal = on; render();
   try {
-    await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.priceLamp, value:on});
+    await setVar(VAR.priceLamp, on);
     if (on) for (const f of PRICE_FLOWS){ try { await S.mcp.callTool(HOMEY, "start_flow", {flowId:f, flowType:"standard"}); } catch(e){} }
     if (!quiet) toast(on ? "Sonoslampan visar elpriset igen" : "Elprisfärgen är avstängd"); invalidate("list_devices", 1500);
   } catch(e){ S.priceLampLocal = null; toast(errText(e)); render(); }
@@ -1041,7 +1049,7 @@ async function setAway(on, btn){
   if (!S.mcp){ toast("Öppna appen i Claude eller anslut till Homey först."); render(); return; }
   S.awayLocal = on; render();
   try {
-    await S.mcp.callTool(HOMEY, "set_variable", {variableId:AWAY_VAR, value:on});
+    await setVar(AWAY_VAR, on);
     await S.mcp.callTool(HOMEY, "start_flow", {flowId:AWAY_FLOW, flowType:"advanced"});
     toast(on ? "Bortaläget är på. Trevlig resa!" : "Bortaläget är av. Välkommen hem!");
   } catch(e){ S.awayLocal = null; toast("Kunde inte ändra bortaläget: "+errText(e)); }
@@ -1058,7 +1066,7 @@ async function goodMorning(btn){
   if (Array.isArray(S.cal)) items = S.cal.map(e => { const s = e.start||{}, allDay = !!s.date && !s.dateTime, t = Date.parse(s.dateTime || s.date+"T00:00:00"); return {t, allDay, title:e.summary||""}; })
     .filter(x => !isNaN(x.t) && new Date(x.t).toDateString() === now.toDateString() && x.title).sort((a,b) => a.t-b.t).slice(0,4).map(x => ({time:x.allDay ? "" : tFmt.format(x.t), title:x.title}));
   try {
-    await S.mcp.callTool(HOMEY, "set_variable", {variableId:MOR_CAL, value:JSON.stringify({day, items})}).catch(() => {});
+    await setVar(MOR_CAL, JSON.stringify({day, items})).catch(() => {});
     await S.mcp.callTool(HOMEY, "start_flow", {flowId:MOR_FLOW, flowType:"advanced"});
     toast("God morgon! Köket läser upp dagen, sedan startar morgonmusiken.");
   } catch(e){ toast("Kunde inte starta: "+errText(e)); }
@@ -1300,7 +1308,7 @@ async function playFav(id, label, btn){
   const to = FAV_TO.find(f => f.id === S.favTo) || FAV_TO[0];
   if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
   btn.classList.add("busy");
-  try { await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.fav, value:String(id)}); await S.mcp.callTool(HOMEY, "start_flow", {flowId:to.flow, flowType:"advanced"}); toast(label+" i "+to.name); invalidate("list_devices", 3000); }
+  try { await setVar(VAR.fav, String(id)); await S.mcp.callTool(HOMEY, "start_flow", {flowId:to.flow, flowType:"advanced"}); toast(label+" i "+to.name); invalidate("list_devices", 3000); }
   catch(e){ toast(errText(e)); } finally { btn.classList.remove("busy"); }
 }
 
@@ -1331,11 +1339,42 @@ function vacCard(){
     '<div class="bar" style="margin-top:10px;--bc:'+((v.measure_battery||0)<20?"var(--bad)":"var(--info)")+'"><i style="width:'+clamp(v.measure_battery||0,0,100)+'%"></i></div>'+
     (notes.length?'<div class="note" style="color:var(--warn)">'+notes.join(" · ")+'</div>':'')+
     '<div class="btnrow" style="margin-top:14px"><button type="button" class="btn pri" data-act="flow" data-id="'+VACF.all+'" data-done="Dammsuger hela huset">'+ic("play",14)+'Hela huset</button></div>'+
-    '<div class="btnrow" style="margin-top:8px"><button type="button" class="btn" data-act="flow" data-id="'+VACF.kok+'" data-done="Dammsuger köket">Köket</button><button type="button" class="btn" data-act="flow" data-id="'+VACF.vard+'" data-done="Dammsuger vardagsrummet">Vardagsrummet</button><button type="button" class="btn" data-act="flow" data-id="'+VACF.hall+'" data-done="Dammsuger hallen">Hallen</button></div>'+
+    '<div class="btnrow" style="margin-top:8px">'+[["kök","Köket"],["vardagsrummet","Vardagsrummet"],["hallen","Hallen"]].map(r => '<button type="button" class="btn" data-act="vacroom" data-r="'+r[0]+'">'+r[1]+'</button>').join("")+'<button type="button" class="btn" data-act="vacsheet">Fler rum</button></div>'+
+    '<div class="xs muted" style="margin-top:6px">Välj rum, läge och sugkraft innan städningen startar.</div>'+
     '<div class="btnrow" style="margin-top:8px">'+(v.pause_clean?'<button type="button" class="btn" data-act="flow" data-id="'+VACF.resume+'" data-done="Fortsätter">Fortsätt</button>':'<button type="button" class="btn" data-act="flow" data-id="'+VACF.pause+'" data-done="Pausad">Pausa</button>')+'<button type="button" class="btn" data-act="flow" data-id="'+VACF.dock+'" data-done="Åker till dockan">Till dockan</button><button type="button" class="btn" data-act="press" data-id="'+DEV.vac+'" data-cap="locate">Hitta</button></div>'+
     '<div class="xs muted" style="margin-top:10px">'+(v.mop_attached?"Mopp monterad":"Ingen mopp")+(v.water_box_attached?" · vattentank på plats":"")+'</div>');
 }
 /* big pop-up for the vacuum: everything the card has plus suction, mode and maintenance */
+/* room cleaning with its own settings, sent straight to the Roborock card "clean rooms with config" */
+const VAC_ROOMS = [["hallen","Hallen"],["kök","Köket"],["vardagsrummet","Vardagsrummet"],["neos rum","Neos rum"],["master bedroom","Sovrummet"],["enzos rum","Enzos rum"]];
+const VAC_CARD = "homey:device:7fb7de6a-d8c6-49e3-afa4-5370175c617a:clean_rooms_with_config";
+function vacCfg(){
+  if (!S.vz){ let c = null; try { c = JSON.parse(localStorage.getItem("lt_vz")||"null"); } catch(e){} S.vz = Object.assign({rooms:[], mode:"0", suction:"102", scrub:"202", route:"300", repeat:1}, c||{}); }
+  return S.vz;
+}
+function saveVz(){ try { const c = Object.assign({}, S.vz, {rooms:[]}); localStorage.setItem("lt_vz", JSON.stringify(c)); } catch(e){} }
+function zoneBlock(v){
+  const z = vacCfg(), vac = z.mode !== "2", mop = z.mode !== "0";
+  const zs = (key, opts) => '<div class="seg">'+opts.map(o => '<button type="button" data-act="vz" data-k="'+key+'" data-v="'+o[0]+'" aria-pressed="'+(String(z[key])===String(o[0]))+'">'+o[1]+'</button>').join("")+'</div>';
+  const names = z.rooms.map(r => (VAC_ROOMS.find(x => x[0]===r)||[r,r])[1]);
+  return '<div class="lbl">Städa rum</div><div class="chips">'+VAC_ROOMS.map(r => '<button type="button" class="chip" data-act="vzroom" data-r="'+r[0]+'" aria-pressed="'+z.rooms.includes(r[0])+'">'+(z.rooms.includes(r[0])?"✓ ":"")+r[1]+'</button>').join("")+'</div>'+
+    '<div class="xs muted" style="margin:12px 0 6px">Städläge</div>'+zs("mode",[["0","Dammsug"],["1","Dammsug + mopp"],["2","Mopp"]])+
+    (vac?'<div class="xs muted" style="margin:10px 0 6px">Sugkraft</div>'+zs("suction",[["101","Tyst"],["102","Balans"],["103","Turbo"],["104","Max"],["108","Max+"]]):'')+
+    (mop?'<div class="xs muted" style="margin:10px 0 6px">Moppens intensitet</div>'+zs("scrub",[["201","Mild"],["202","Måttlig"],["203","Intensiv"]])+
+      '<div class="xs muted" style="margin:10px 0 6px">Mopprutt</div>'+zs("route",[["304","Snabb"],["300","Standard"],["301","Djup"],["303","Djup+"]]):'')+
+    '<div class="xs muted" style="margin:10px 0 6px">Antal varv</div>'+zs("repeat",[[1,"1"],[2,"2"],[3,"3"]])+
+    (mop && v && v.mop_attached === false ? '<div class="note" style="color:var(--warn)">Moppen är inte monterad.</div>' : '')+
+    '<div class="btnrow" style="margin-top:12px"><button type="button" class="btn pri" data-act="vzgo"'+(z.rooms.length?'':' disabled style="opacity:.5"')+'>'+ic("play",14)+(z.rooms.length?'Städa '+esc(names.join(", ").replace(/, ([^,]*)$/," och $1")):'Välj minst ett rum')+'</button></div>';
+}
+async function vacZoneGo(btn){
+  const z = vacCfg(); if (!z.rooms.length) return;
+  if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
+  const args = {rooms:z.rooms.join(","), repeat:Number(z.repeat)||1, clean_mode:z.mode, suction_power:z.mode==="2"?"105":z.suction, scrub_intensity:z.mode==="0"?"200":z.scrub, mop_route:z.route};
+  if (btn) btn.classList.add("busy"); buzz();
+  try { await S.mcp.callTool(HOMEY, "run_flow_card_action", {cardId:VAC_CARD, args}); toast("Marie-Claude börjar städa"); z.rooms = []; renderSheet(); invalidate("list_devices", 3000); }
+  catch(e){ toast(errText(e)); }
+  finally { if (btn) btn.classList.remove("busy"); }
+}
 function vacSheet(d){
   const v = d.state, txt = vacText(v), prob = v.alarm_problem || v.alarm_stuck;
   const fb = (id, label, done, pri, icn) => '<button type="button" class="btn'+(pri?" pri":"")+'" data-act="flow" data-id="'+id+'" data-done="'+done+'">'+(icn?ic(icn,14):"")+label+'</button>';
@@ -1350,11 +1389,10 @@ function vacSheet(d){
     '<div class="bar" style="margin-top:10px;--bc:'+((v.measure_battery||0)<20?"var(--bad)":"var(--info)")+'"><i style="width:'+clamp(v.measure_battery||0,0,100)+'%"></i></div>'+
     (notes.length?'<div class="note" style="color:var(--warn)">'+notes.join(" · ")+'</div>':'')+
     '<div class="lbl">Städa</div><div class="btnrow">'+fb(VACF.all,"Hela huset","Dammsuger hela huset",1,"play")+'</div>'+
-    '<div class="btnrow" style="margin-top:8px">'+fb(VACF.kok,"Köket","Dammsuger köket")+fb(VACF.vard,"Vardagsrummet","Dammsuger vardagsrummet")+fb(VACF.hall,"Hallen","Dammsuger hallen")+'</div>'+
     '<div class="btnrow" style="margin-top:8px">'+(v.pause_clean?fb(VACF.resume,"Fortsätt","Fortsätter"):fb(VACF.pause,"Pausa","Pausad"))+fb(VACF.dock,"Till dockan","Åker till dockan")+'<button type="button" class="btn" data-act="press" data-id="'+d.id+'" data-cap="locate">Hitta</button></div>'+
-    '<div class="lbl">Sugkraft</div>'+seg("suction_power",[["101","Tyst"],["102","Balans"],["103","Turbo"],["104","Max"]])+
-    '<div class="lbl">Läge</div>'+seg("clean_mode",[["0","Dammsug"],["1","Dammsug + mopp"],["2","Mopp"]])+
-    '<div class="xs muted" style="margin-top:6px">Sugkraft och läge gäller Hela huset. Rummen städas alltid med bara dammsugning och balanserad sugkraft.</div>'+
+    zoneBlock(v)+
+    '<div class="lbl">Inställningar för hela huset</div><div class="xs muted" style="margin-bottom:6px">Sugkraft</div>'+seg("suction_power",[["101","Tyst"],["102","Balans"],["103","Turbo"],["104","Max"]])+
+    '<div class="xs muted" style="margin:10px 0 6px">Läge</div>'+seg("clean_mode",[["0","Dammsug"],["1","Dammsug + mopp"],["2","Mopp"]])+
     (cons?'<div class="lbl">Underhåll</div><div class="cons">'+cons+'</div>':'')+
     '<div class="xs muted" style="margin-top:12px">'+(v.mop_attached?"Mopp monterad":"Ingen mopp")+(v.water_box_attached?" · vattentank på plats":"")+'</div>'+
     '</div></div>';
@@ -1607,7 +1645,7 @@ async function camFetch(name){
   if (!S.mcp){ toast("Öppna appen i Claude med Homey kopplad."); return; }
   S.camReq = name; S.camReqAt = Date.now(); renderSheet();
   try {
-    await S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.camVal, value:name});
+    await setVar(VAR.camVal, name);
     await S.mcp.callTool(HOMEY, "start_flow", {flowId:CAM_FLOW, flowType:"advanced"});
     [7000, 14000, 25000].forEach(ms => invalidate("list_variables", ms));
     setTimeout(() => { if (S.camReq === name) { S.camReq = null; if (S.sheet) renderSheet(); } }, 60000);
@@ -1718,7 +1756,7 @@ function sweFollow(){
   const path = slug && gid ? slug+"/standings?group="+gid : null, cur = (S.vars[VAR.sweTabUrl]||{}).value;
   if (!S.mcp || !path || !cur || cur === path || S.sweUrlSet === path || !/^[a-z0-9.]+\/standings\?group=\d+$/.test(path)) return;
   S.sweUrlSet = path;
-  S.mcp.callTool(HOMEY, "set_variable", {variableId:VAR.sweTabUrl, value:path}).then(() => S.mcp.callTool(HOMEY, "start_flow", {flowId:FLOW.sweTab, flowType:"advanced"})).then(() => invalidate("list_variables", 6000)).catch(()=>{});
+  setVar(VAR.sweTabUrl, path).then(() => S.mcp.callTool(HOMEY, "start_flow", {flowId:FLOW.sweTab, flowType:"advanced"})).then(() => invalidate("list_variables", 6000)).catch(()=>{});
 }
 function sweCard(){
   const d = sweData(), tm = d.team;
@@ -1893,6 +1931,10 @@ document.addEventListener("click", e => {
   else if (a === "wxsheet"){ S.sheet = {kind:"wx", k:b.dataset.k, i:b.dataset.i!=null?Number(b.dataset.i):null}; renderSheet(); }
   else if (a === "skisheet"){ const n = b.dataset.n; S.sheet = {kind:"ski", name:n}; renderSheet(); const c = (S.camCache||{})[n]; if (CAM_RESORTS.includes(n) && (!c || Date.now() - Date.parse(c.at) > 15*60000)) camFetch(n); }
   else if (a === "camfetch"){ camFetch(b.dataset.n); }
+  else if (a === "vzroom"){ const z = vacCfg(), r = b.dataset.r; z.rooms = z.rooms.includes(r) ? z.rooms.filter(x => x !== r) : z.rooms.concat([r]); renderSheet(); }
+  else if (a === "vz"){ const z = vacCfg(); z[b.dataset.k] = b.dataset.k === "repeat" ? Number(b.dataset.v) : b.dataset.v; saveVz(); renderSheet(); }
+  else if (a === "vzgo"){ vacZoneGo(b); }
+  else if (a === "vacroom"){ const z = vacCfg(); z.rooms = [b.dataset.r]; S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); setTimeout(() => { const el = document.querySelector(".sheet .chips"); if (el) el.scrollIntoView({block:"center", behavior:"smooth"}); }, 60); }
   else if (a === "vacsheet"){ S.sheet = {id:DEV.vac, kind:"vac"}; renderSheet(); }
   else if (a === "msheet"){ const k = b.dataset.k; S.sheet = {id:k==="mower"?DEV.mower:DEV.zaptec, kind:k}; renderSheet(); }
   else if (a === "lmode"){ const sid = S.sheet.id; setCaps({[sid]:{onoff:true, light_mode:b.dataset.v === "color" ? "color" : "temperature"}}); }
